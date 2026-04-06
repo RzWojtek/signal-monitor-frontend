@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { initializeApp } from "firebase/app";
 import {
   getFirestore, collection, query, orderBy,
-  limit, onSnapshot, doc, setDoc, getDocs,
+  limit, onSnapshot, doc, setDoc, getDocs, updateDoc, getDoc,
 } from "firebase/firestore";
 
 const firebaseConfig = {
@@ -15,6 +15,71 @@ const firebaseConfig = {
 };
 const app = initializeApp(firebaseConfig);
 const db  = getFirestore(app);
+
+// ─── Close position from frontend ─────────────────────────────────────────────
+async function closePositionManually(positionId, currentPrice, reason="MANUAL_CLOSE") {
+  try {
+    const posRef = doc(db, "simulation_positions", positionId);
+    const posSnap = await getDoc(posRef);
+    if (!posSnap.exists()) return;
+    const pos = posSnap.data();
+    if (pos.status !== "OPEN") return;
+
+    const entry = pos.entry_price;
+    const qty = pos.quantity_remaining || pos.quantity;
+    const allocated = pos.allocated_usd;
+    const isLong = ["LONG","SPOT_BUY"].includes(pos.signal_type);
+    const pnl = isLong ? (currentPrice - entry)*qty : (entry - currentPrice)*qty;
+    const totalPnl = round2((pos.realized_pnl||0) + pnl);
+    const pnlPct = allocated ? round2((totalPnl / allocated)*100) : 0;
+    const now = new Date().toISOString();
+
+    // Close position
+    await updateDoc(posRef, {
+      status: "CLOSED",
+      close_price: currentPrice,
+      close_reason: reason,
+      realized_pnl: totalPnl,
+      realized_pnl_pct: pnlPct,
+      unrealized_pnl: 0,
+      closed_at: now,
+    });
+
+    // Update portfolio
+    const portRef = doc(db, "simulation", "portfolio");
+    const portSnap = await getDoc(portRef);
+    const port = portSnap.exists() ? portSnap.data() : {};
+    const newCapital = round2((port.current_capital||0) + allocated + pnl);
+    const newRealized = round2((port.realized_pnl||0) + pnl);
+    const initial = port.initial_capital || 500;
+    await updateDoc(portRef, {
+      current_capital: newCapital,
+      realized_pnl: newRealized,
+      total_pnl: newRealized,
+      total_pnl_pct: round2((newRealized/initial)*100),
+      wins: pnl>=0 ? (port.wins||0)+1 : (port.wins||0),
+      losses: pnl<0 ? (port.losses||0)+1 : (port.losses||0),
+    });
+
+    // Log event
+    await setDoc(doc(db, "simulation_log", Date.now().toString()), {
+      event_type: "CLOSE",
+      position_id: positionId,
+      symbol: pos.symbol,
+      signal_type: pos.signal_type,
+      channel: pos.channel||"?",
+      message: `Manual close @ ${currentPrice} | PnL: $${totalPnl}`,
+      timestamp_iso: now,
+    });
+
+    console.log("Position closed:", positionId, "PnL:", totalPnl);
+  } catch(e) {
+    console.error("Error closing position:", e);
+    alert("Błąd podczas zamykania pozycji: " + e.message);
+  }
+}
+
+const round2 = (n) => Math.round(n * 10000) / 10000;
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 const fmt   = (n, d=2) => n != null ? Number(n).toFixed(d) : "—";
@@ -100,7 +165,7 @@ function PortfolioHeader({portfolio}){
 }
 
 // ─── Positions Table ───────────────────────────────────────────────────────────
-function PositionsTable({positions,channelNames}){
+function PositionsTable({positions,channelNames,onClose}){
   const [expandedId,setExpandedId]=useState(null);
   if(!positions.length) return(
     <div style={{color:"#333",padding:30,textAlign:"center",fontSize:13}}>Brak pozycji</div>
@@ -110,7 +175,7 @@ function PositionsTable({positions,channelNames}){
       <table style={{width:"100%",borderCollapse:"collapse",fontFamily:"monospace",fontSize:12}}>
         <thead>
           <tr style={{borderBottom:`1px solid ${BORDER}`}}>
-            {["Symbol","Typ","Entry","Aktualnie","SL","TP","Alloc.","Unrealized P&L","Kanał","Otwarto"].map(h=>(
+            {["Symbol","Typ","Entry","Aktualnie","SL","TP","Alloc.","Unrealized P&L","Kanał","Otwarto",""].map(h=>(
               <th key={h} style={{color:"#444",fontSize:10,letterSpacing:1,padding:"8px 10px",
                 textAlign:"left",textTransform:"uppercase",whiteSpace:"nowrap"}}>{h}</th>
             ))}
@@ -154,10 +219,21 @@ function PositionsTable({positions,channelNames}){
                 <td style={{padding:"10px 10px",color:PURPLE,fontSize:11,maxWidth:100,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}
                   title={chName}>{chName}</td>
                 <td style={{padding:"10px 10px",color:"#444",fontSize:11}}>{ago(pos.opened_at)}</td>
+                <td style={{padding:"10px 10px"}} onClick={e=>e.stopPropagation()}>
+                  <button onClick={()=>{
+                    if(window.confirm(`Zamknąć ${pos.symbol} po cenie ${pos.current_price}?`)){
+                      onClose(pos.id, pos.current_price||pos.entry_price);
+                    }
+                  }} style={{
+                    background:RED+"22",color:RED,border:`1px solid ${RED}44`,
+                    borderRadius:4,padding:"3px 10px",cursor:"pointer",
+                    fontSize:10,fontFamily:"monospace",whiteSpace:"nowrap",
+                  }}>✕ Zamknij</button>
+                </td>
               </tr>
               {expandedId===pos.id&&(
                 <tr key={pos.id+"_exp"}>
-                  <td colSpan={10} style={{padding:"0 10px 12px 10px",background:"#0a0f16"}}>
+                  <td colSpan={11} style={{padding:"0 10px 12px 10px",background:"#0a0f16"}}>
                     <div style={{padding:12,borderRadius:8,border:`1px solid ${accent}22`,display:"flex",gap:24,flexWrap:"wrap"}}>
                       <div>
                         <div style={{color:"#444",fontSize:10,marginBottom:4}}>TAKE PROFITS</div>
@@ -540,7 +616,7 @@ export default function App(){
         {tab==="portfolio"&&(<>
           <PortfolioHeader portfolio={portfolio}/>
           {openPos.length>0&&<Card color={BLUE} title="OTWARTE POZYCJE" count={openPos.length}>
-            <PositionsTable positions={openPos} channelNames={channelNames}/>
+            <PositionsTable positions={openPos} channelNames={channelNames} onClose={closePositionManually}/>
           </Card>}
           {closedPos.length>0&&<Card color={PURPLE} title="OSTATNIE ZAMKNIĘTE" count={closedPos.length}>
             <ClosedTable positions={closedPos.slice(0,5)} channelNames={channelNames}/>
@@ -548,7 +624,7 @@ export default function App(){
         </>)}
 
         {tab==="open"&&<Card color={BLUE} title="OTWARTE POZYCJE" count={openPos.length}>
-          <PositionsTable positions={openPos} channelNames={channelNames}/>
+          <PositionsTable positions={openPos} channelNames={channelNames} onClose={closePositionManually}/>
         </Card>}
 
         {tab==="closed"&&<Card color={PURPLE} title="ZAMKNIĘTE POZYCJE" count={closedPos.length}>
