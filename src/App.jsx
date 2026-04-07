@@ -293,19 +293,16 @@ const PositionRow = ({ pos, channelNames, onRename, onClose }) => {
               {tpsTotal>0&&<span style={{color:tpsHit>0?GREEN:"#7878a0",marginLeft:6}}>({tpsHit}/{tpsTotal})</span>}
             </div>
             {pos.take_profits?.length?(
-              <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+              <div style={{display:"flex",flexDirection:"column",gap:3}}>
                 {pos.take_profits.map(tp=>{
                   const hit=pos.tps_hit?.includes(tp.level);
                   return(
-                    <span key={tp.level} style={{
-                      background:hit?GREEN+"22":"#3a3a52",
+                    <div key={tp.level} style={{
                       color:hit?GREEN:"#7878a0",
-                      border:`1px solid ${hit?GREEN+"55":BORDER}`,
-                      borderRadius:4,padding:"2px 8px",
-                      fontSize:11,fontFamily:"monospace",
+                      fontSize:12,fontFamily:"monospace",
                     }}>
-                      {hit?"✓ ":"○ "}TP{tp.level}: ${fmt(tp.price,4)}
-                    </span>
+                      {hit?"✓":"○"} TP{tp.level}: ${fmt(tp.price,4)}
+                    </div>
                   );
                 })}
               </div>
