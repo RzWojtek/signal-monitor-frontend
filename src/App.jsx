@@ -224,7 +224,7 @@ const PositionRow = ({ pos, channelNames, onRename, onClose, expanded, onToggle 
   const slMoved=pos.sl_moved_to_be;
 
   return(<>
-    <tr onClick={()=>setExpanded(p=>!p)}
+    <tr onClick={()=>onToggle(pos.id)}
       style={{borderBottom:`1px solid ${BORDER}`,cursor:"pointer",transition:"background 0.15s"}}
       onMouseEnter={e=>e.currentTarget.style.background="#ffffff08"}
       onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
@@ -513,6 +513,7 @@ const TABS=[
   {id:"channels",label:"📈 Kanały"},
   {id:"signals",label:"📡 Sygnały"},
   {id:"log",label:"📝 Log"},
+  {id:"debug",label:"🔧 Debug"},
 ];
 
 function TabBar({active,onChange}){
@@ -655,6 +656,7 @@ export default function App(){
           <span style={{color:"#b8b8d0"}}>Otwarte: <span style={{color:GREEN}}>{openPos.length}</span></span>
           <span style={{color:"#b8b8d0"}}>Sygnały: <span style={{color:PURPLE}}>{signals.length}</span></span>
           <span style={{color:"#b8b8d0"}}>Kanały: <span style={{color:ORANGE}}>{channelStats.length}</span></span>
+          <span style={{color:"#b8b8d0"}}>Nazwy: <span style={{color:YELLOW}}>{Object.keys(channelNames).length}</span></span>
         </div>
       </div>
 
@@ -692,6 +694,32 @@ export default function App(){
 
         {tab==="log"&&<Card color="#9898b8" title="LOG ZDARZEŃ" count={logEvents.length}>
           <EventLog events={logEvents} channelNames={channelNames} onRename={handleRename}/>
+        </Card>}
+
+        {tab==="debug"&&<Card color={YELLOW} title="DEBUG — NAZWY KANAŁÓW">
+          <div style={{fontFamily:"monospace",fontSize:12}}>
+            <div style={{color:YELLOW,marginBottom:12}}>
+              Załadowane nazwy ({Object.keys(channelNames).length} wpisów):
+            </div>
+            {Object.entries(channelNames).map(([k,v])=>(
+              <div key={k} style={{padding:"3px 0",borderBottom:"1px solid #5c5c7a22",color:"#e8e8f0"}}>
+                <span style={{color:"#9898b8",minWidth:200,display:"inline-block"}}>{k}</span>
+                <span style={{color:GREEN}}> → {v}</span>
+              </div>
+            ))}
+            <div style={{color:YELLOW,marginTop:16,marginBottom:8}}>
+              ID kanałów w pozycjach:
+            </div>
+            {openPos.map(p=>(
+              <div key={p.id} style={{padding:"3px 0",color:"#e8e8f0"}}>
+                <span style={{color:BLUE}}>{p.symbol}</span>
+                <span style={{color:"#9898b8",margin:"0 8px"}}>channel:</span>
+                <span style={{color:ORANGE}}>"{p.channel}"</span>
+                <span style={{color:"#9898b8",margin:"0 8px"}}>→ lookup:</span>
+                <span style={{color:GREEN}}>"{lookupName(p.channel, channelNames)}"</span>
+              </div>
+            ))}
+          </div>
         </Card>}
       </div>
     </div>
