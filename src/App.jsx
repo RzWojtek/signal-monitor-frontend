@@ -558,25 +558,19 @@ function EventLog({events,channelNames,onRename}){
 // ─── Bot Health Dashboard ──────────────────────────────────────────────────────
 function StatusDot({status}) {
   const colors = {
-    ok: "#00e5ff",
-    error: "#ff5c7a",
-    warning: "#ffe066",
-    rate_limited: "#ff9f43",
-    starting: "#9898b8",
-    no_handler: "#ffe066",
+    ok:"#00e5ff", error:"#ff5c7a", warning:"#ffe066",
+    rate_limited:"#ff9f43", starting:"#9898b8", no_handler:"#ffe066",
   };
   const labels = {
-    ok: "OK", error: "BŁĄD", warning: "UWAGA",
-    rate_limited: "LIMIT", starting: "START", no_handler: "BRAK HANDLERA",
+    ok:"OK", error:"BŁĄD", warning:"UWAGA",
+    rate_limited:"LIMIT", starting:"START", no_handler:"BRAK HANDLERA",
   };
-  const c = colors[status] || "#9898b8";
+  const c = colors[status]||"#9898b8";
   return (
     <span style={{display:"inline-flex",alignItems:"center",gap:5}}>
-      <span style={{
-        width:9,height:9,borderRadius:"50%",background:c,
+      <span style={{width:9,height:9,borderRadius:"50%",background:c,
         boxShadow:`0 0 6px ${c}`,display:"inline-block",
-        animation: status==="ok" ? "pulse 2s infinite" : "none",
-      }}/>
+        animation:status==="ok"?"pulse 2s infinite":"none"}}/>
       <span style={{color:c,fontSize:11,fontFamily:"monospace",fontWeight:700}}>
         {labels[status]||status}
       </span>
@@ -586,15 +580,12 @@ function StatusDot({status}) {
 
 function HealthRow({label, status, detail, last_ok}) {
   return (
-    <div style={{
-      display:"flex",alignItems:"center",gap:12,
-      padding:"8px 12px",borderBottom:`1px solid #5c5c7a22`,
-      flexWrap:"wrap",
-    }}>
+    <div style={{display:"flex",alignItems:"center",gap:12,
+      padding:"8px 12px",borderBottom:`1px solid #5c5c7a22`,flexWrap:"wrap"}}>
       <span style={{color:"#e8e8f0",fontFamily:"monospace",fontSize:12,minWidth:160}}>{label}</span>
       <StatusDot status={status}/>
-      {detail && <span style={{color:"#ff5c7a",fontSize:11,flex:1}}>{detail}</span>}
-      {last_ok && !detail && (
+      {detail&&<span style={{color:"#ff5c7a",fontSize:11,flex:1,wordBreak:"break-all"}}>{detail}</span>}
+      {last_ok&&!detail&&(
         <span style={{color:"#7878a0",fontSize:10,marginLeft:"auto"}}>
           ostatni OK: {new Date(last_ok).toLocaleTimeString("pl-PL")}
         </span>
@@ -603,10 +594,95 @@ function HealthRow({label, status, detail, last_ok}) {
   );
 }
 
+function EventFeed({events}) {
+  const icons = {
+    signal:"📡", rejected:"✗", prefilter:"⏭", error:"❌",
+    rate_limit:"⚠", position_open:"🔓", tp_hit:"🎯", sl_hit:"🛑",
+  };
+  const colors = {
+    success:"#00e5ff", error:"#ff5c7a", warning:"#ffe066",
+    muted:"#5a5a7a", info:"#a0a0c0",
+  };
+  if (!events||!events.length) return (
+    <div style={{color:"#7878a0",padding:"12px",fontSize:12}}>Brak zdarzeń w tej sesji</div>
+  );
+  return (
+    <div style={{maxHeight:280,overflowY:"auto"}}>
+      {events.map((e,i)=>{
+        const c = colors[e.level]||"#a0a0c0";
+        const ts = new Date(e.timestamp).toLocaleTimeString("pl-PL");
+        return (
+          <div key={i} style={{display:"flex",alignItems:"center",gap:8,
+            padding:"5px 12px",borderBottom:`1px solid #5c5c7a15`,
+            background:i===0?"#3a3a5210":"transparent"}}>
+            <span style={{fontSize:13}}>{icons[e.type]||"•"}</span>
+            <span style={{color:c,fontFamily:"monospace",fontSize:12,flex:1}}>
+              {e.message}
+            </span>
+            {e.channel&&<span style={{color:"#5a5a7a",fontSize:10}}>{e.channel}</span>}
+            <span style={{color:"#5a5a7a",fontSize:10,whiteSpace:"nowrap"}}>{ts}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function AlertBanner({alerts}) {
+  if (!alerts||!alerts.length) return null;
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:16}}>
+      {alerts.map(a=>(
+        <div key={a.key} style={{
+          background:a.level==="error"?"#ff5c7a18":"#ffe06618",
+          border:`1px solid ${a.level==="error"?"#ff5c7a":"#ffe066"}55`,
+          borderRadius:8,padding:"10px 16px",
+          display:"flex",alignItems:"center",gap:10,
+        }}>
+          <span style={{fontSize:18}}>{a.level==="error"?"🚨":"⚠️"}</span>
+          <span style={{color:a.level==="error"?"#ff5c7a":"#ffe066",
+            fontFamily:"monospace",fontSize:12,fontWeight:700}}>
+            {a.message}
+          </span>
+          <span style={{color:"#7878a0",fontSize:10,marginLeft:"auto"}}>
+            {new Date(a.timestamp).toLocaleTimeString("pl-PL")}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function TokenBar({used, limit, pct}) {
+  const color = pct>90?"#ff5c7a":pct>70?"#ffe066":"#00e5ff";
+  return (
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",marginBottom:5,fontSize:11,fontFamily:"monospace"}}>
+        <span style={{color:"#9898b8"}}>Zużyto dziś</span>
+        <span style={{color}}>
+          {used?.toLocaleString()||0} / {limit?.toLocaleString()||"100,000"} tokenów ({pct||0}%)
+        </span>
+      </div>
+      <div style={{background:"#2e2e46",borderRadius:4,height:8,overflow:"hidden"}}>
+        <div style={{
+          width:`${Math.min(pct||0,100)}%`,height:"100%",
+          background:`linear-gradient(90deg,${color}80,${color})`,
+          borderRadius:4,transition:"width 1s ease",
+        }}/>
+      </div>
+      <div style={{color:"#7878a0",fontSize:10,marginTop:4}}>
+        Pozostało: <span style={{color}}>{(limit-used)?.toLocaleString()||"?"} tokenów</span>
+        {" · "}Reset: codziennie o północy UTC
+      </div>
+    </div>
+  );
+}
+
 function BotHealthDashboard({health, channelNames, openPos}) {
   if (!health) return (
-    <div style={{background:CARD,border:`1px solid ${BORDER}`,borderRadius:10,padding:30,textAlign:"center"}}>
-      <div style={{color:"#7878a0",fontSize:13}}>Brak danych health — bot musi działać min. 1 minutę</div>
+    <div style={{background:CARD,border:`1px solid ${BORDER}`,borderRadius:10,
+      padding:30,textAlign:"center",color:"#7878a0",fontSize:13}}>
+      Brak danych — bot musi działać min. 1 minutę aby pojawił się heartbeat
     </div>
   );
 
@@ -614,98 +690,85 @@ function BotHealthDashboard({health, channelNames, openPos}) {
   const overallColor = overall==="ok"?GREEN:overall==="warning"?YELLOW:RED;
   const ts = health.timestamp_iso ? new Date(health.timestamp_iso) : null;
   const secondsAgo = ts ? Math.floor((Date.now()-ts)/1000) : null;
-  const isStale = secondsAgo > 120; // brak heartbeat > 2 minuty = problem
+  const isStale = secondsAgo > 120;
 
   return (
-    <div style={{display:"flex",flexDirection:"column",gap:16}}>
+    <div style={{display:"flex",flexDirection:"column",gap:14}}>
+
+      {/* Alerty */}
+      <AlertBanner alerts={health.alerts}/>
 
       {/* Główny status */}
-      <div style={{
-        background:CARD,
+      <div style={{background:CARD,
         border:`2px solid ${isStale?RED:overallColor}55`,
-        borderRadius:10,padding:"16px 20px",
-      }}>
+        borderRadius:10,padding:"14px 20px"}}>
         <div style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
-          <span style={{fontSize:24}}>{overall==="ok"?"🟢":overall==="warning"?"🟡":"🔴"}</span>
+          <span style={{fontSize:22}}>{overall==="ok"?"🟢":overall==="warning"?"🟡":"🔴"}</span>
           <div>
-            <div style={{color:"#fff",fontWeight:800,fontSize:15,letterSpacing:2}}>
-              STATUS BOTA
-            </div>
+            <div style={{color:"#fff",fontWeight:800,fontSize:14,letterSpacing:2}}>STATUS BOTA</div>
             <div style={{color:"#9898b8",fontSize:11}}>
               Uptime: <span style={{color:GREEN}}>{health.uptime||"—"}</span>
               {" · "}
               Heartbeat: <span style={{color:isStale?RED:GREEN}}>
-                {secondsAgo!=null ? `${secondsAgo}s temu` : "—"}
+                {secondsAgo!=null?`${secondsAgo}s temu`:"—"}
               </span>
-              {isStale && <span style={{color:RED,marginLeft:8}}>⚠ BOT MOŻE BYĆ ZAWIESZONY!</span>}
+              {isStale&&<span style={{color:RED,marginLeft:8,fontWeight:700}}>
+                ⚠ BOT MOŻE BYĆ ZAWIESZONY!
+              </span>}
             </div>
           </div>
-          <div style={{marginLeft:"auto"}}>
-            <StatusDot status={isStale?"error":overall}/>
-          </div>
+          <div style={{marginLeft:"auto"}}><StatusDot status={isStale?"error":overall}/></div>
         </div>
       </div>
 
-      {/* Komponenty */}
-      <div style={{background:CARD,border:`1px solid ${BORDER}`,borderRadius:10,overflow:"hidden"}}>
-        <div style={{color:"#9898b8",fontSize:10,letterSpacing:2,padding:"10px 12px",
-          borderBottom:`1px solid ${BORDER}`}}>KOMPONENTY</div>
-        <HealthRow label="📡 Telegram" status={health.telegram_status||"unknown"}
-          detail={health.telegram_error} last_ok={health.telegram_last_ok}/>
-        <HealthRow label="🤖 Groq AI"
-          status={health.groq_rate_limited?"rate_limited":(health.groq_status||"unknown")}
-          detail={health.groq_rate_limited
-            ? `LIMIT TOKENÓW: ${health.groq_error?.substring(0,80)||""}...`
-            : health.groq_error}
-          last_ok={health.groq_last_ok}/>
-        <HealthRow label="🔥 Firebase" status={health.firebase_status||"unknown"}/>
-        <HealthRow label="💹 Price Updater" status={health.price_updater_status||"unknown"}
-          last_ok={health.price_updater_last_ok}/>
-      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
 
-      {/* Kanały */}
-      <div style={{background:CARD,border:`1px solid ${BORDER}`,borderRadius:10,overflow:"hidden"}}>
-        <div style={{color:"#9898b8",fontSize:10,letterSpacing:2,padding:"10px 12px",
-          borderBottom:`1px solid ${BORDER}`}}>KANAŁY TELEGRAM</div>
-        {health.channels && Object.entries(health.channels).map(([id, ch])=>{
-          const name = channelNames[id] || ch.name || id;
-          const lastMsg = ch.last_message
-            ? Math.floor((Date.now()-new Date(ch.last_message))/1000)
-            : null;
-          return (
-            <div key={id} style={{
-              display:"flex",alignItems:"center",gap:12,
-              padding:"8px 12px",borderBottom:`1px solid #5c5c7a22`,flexWrap:"wrap",
-            }}>
-              <span style={{color:"#e8e8f0",fontFamily:"monospace",fontSize:12,minWidth:160}}>
-                {name}
-              </span>
-              <StatusDot status={ch.status||"unknown"}/>
-              {ch.error && <span style={{color:RED,fontSize:11}}>{ch.error}</span>}
-              <span style={{marginLeft:"auto",color:"#7878a0",fontSize:10}}>
-                {lastMsg!=null
-                  ? lastMsg < 3600
-                    ? `ostatnia wiad. ${lastMsg < 60 ? lastMsg+"s" : Math.floor(lastMsg/60)+"m"} temu`
-                    : `ostatnia wiad. ${Math.floor(lastMsg/3600)}h temu`
-                  : "brak wiadomości"}
-              </span>
-            </div>
-          );
-        })}
-        {(!health.channels || Object.keys(health.channels).length===0) && (
-          <div style={{color:"#7878a0",padding:20,textAlign:"center",fontSize:12}}>
-            Brak danych o kanałach
+        {/* Komponenty */}
+        <div style={{background:CARD,border:`1px solid ${BORDER}`,borderRadius:10,overflow:"hidden"}}>
+          <div style={{color:"#9898b8",fontSize:10,letterSpacing:2,
+            padding:"10px 12px",borderBottom:`1px solid ${BORDER}`}}>KOMPONENTY</div>
+          <HealthRow label="📡 Telegram" status={health.telegram_status||"unknown"}
+            detail={health.telegram_error} last_ok={health.telegram_last_ok}/>
+          <HealthRow label="🤖 Groq AI"
+            status={health.groq_rate_limited?"rate_limited":(health.groq_status||"unknown")}
+            detail={health.groq_rate_limited?`LIMIT TOKENÓW — ${health.groq_error?.substring(health.groq_error?.indexOf("Please"),health.groq_error?.indexOf("Please")+50)||""}`:health.groq_error}
+            last_ok={health.groq_last_ok}/>
+          <HealthRow label="🔥 Firebase" status={health.firebase_status||"unknown"}/>
+          <HealthRow label="💹 Price Updater" status={health.price_updater_status||"unknown"}
+            last_ok={health.price_updater_last_ok}/>
+          {/* Groq szczegóły */}
+          <div style={{padding:"10px 12px",borderBottom:`1px solid #5c5c7a22`}}>
+            <TokenBar used={health.groq_tokens_used} limit={health.groq_tokens_limit}
+              pct={health.groq_tokens_pct}/>
+            {health.groq_avg_response_ms>0&&(
+              <div style={{color:"#9898b8",fontSize:11,marginTop:6}}>
+                Śr. czas odpowiedzi Groq:{" "}
+                <span style={{color:health.groq_avg_response_ms>3000?"#ffe066":"#00e5ff",
+                  fontFamily:"monospace",fontWeight:700}}>
+                  {health.groq_avg_response_ms} ms
+                </span>
+              </div>
+            )}
           </div>
-        )}
+        </div>
+
+        {/* Live feed */}
+        <div style={{background:CARD,border:`1px solid ${BORDER}`,borderRadius:10,overflow:"hidden"}}>
+          <div style={{color:"#9898b8",fontSize:10,letterSpacing:2,
+            padding:"10px 12px",borderBottom:`1px solid ${BORDER}`}}>
+            OSTATNIE ZDARZENIA
+          </div>
+          <EventFeed events={health.recent_events}/>
+        </div>
       </div>
 
-      {/* Statystyki */}
-      <div style={{background:CARD,border:`1px solid ${BORDER}`,borderRadius:10,padding:"16px 20px"}}>
-        <div style={{color:"#9898b8",fontSize:10,letterSpacing:2,marginBottom:14}}>STATYSTYKI SESJI</div>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:12}}>
+      {/* Statystyki sesji */}
+      <div style={{background:CARD,border:`1px solid ${BORDER}`,borderRadius:10,padding:"14px 20px"}}>
+        <div style={{color:"#9898b8",fontSize:10,letterSpacing:2,marginBottom:12}}>STATYSTYKI SESJI</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))",gap:12}}>
           {[
             {l:"Wiadomości",v:health.messages_received||0,c:"#e8e8f0"},
-            {l:"Sygnały złapane",v:health.signals_parsed||0,c:GREEN},
+            {l:"Sygnały",v:health.signals_parsed||0,c:GREEN},
             {l:"Odrzucone",v:health.signals_rejected||0,c:"#7878a0"},
             {l:"Groq wywołania",v:health.groq_calls||0,c:BLUE},
             {l:"Groq błędy",v:health.groq_errors||0,c:health.groq_errors>0?RED:"#7878a0"},
@@ -714,16 +777,74 @@ function BotHealthDashboard({health, channelNames, openPos}) {
           ].map(s=>(
             <div key={s.l}>
               <div style={{color:"#9898b8",fontSize:10,letterSpacing:1,marginBottom:3}}>{s.l}</div>
-              <div style={{color:s.c,fontFamily:"monospace",fontSize:18,fontWeight:700}}>{s.v}</div>
+              <div style={{color:s.c,fontFamily:"monospace",fontSize:20,fontWeight:700}}>{s.v}</div>
             </div>
           ))}
         </div>
       </div>
 
-      {/* Nazwy kanałów debug */}
+      {/* Kanały — szczegóły */}
+      <div style={{background:CARD,border:`1px solid ${BORDER}`,borderRadius:10,overflow:"hidden"}}>
+        <div style={{color:"#9898b8",fontSize:10,letterSpacing:2,
+          padding:"10px 12px",borderBottom:`1px solid ${BORDER}`}}>
+          KANAŁY — AKTYWNOŚĆ
+        </div>
+        {health.channels&&Object.entries(health.channels).map(([id,ch])=>{
+          const name = channelNames[id]||ch.name||id;
+          const lastMsg = ch.last_message
+            ? Math.floor((Date.now()-new Date(ch.last_message))/1000) : null;
+          const lastMsgStr = lastMsg!=null
+            ? lastMsg<60?`${lastMsg}s temu`
+              :lastMsg<3600?`${Math.floor(lastMsg/60)}m temu`
+              :`${Math.floor(lastMsg/3600)}h temu`
+            : "brak wiadomości";
+          const isSilent = lastMsg!=null && lastMsg>21600;
+          return (
+            <div key={id} style={{padding:"10px 12px",borderBottom:`1px solid #5c5c7a22`}}>
+              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:4}}>
+                <span style={{color:"#e8e8f0",fontFamily:"monospace",fontSize:12,fontWeight:600,minWidth:140}}>
+                  {name}
+                </span>
+                <StatusDot status={isSilent?"warning":(ch.status||"unknown")}/>
+                <span style={{marginLeft:"auto",display:"flex",gap:16,fontSize:11,fontFamily:"monospace"}}>
+                  <span style={{color:"#9898b8"}}>
+                    Wiad: <span style={{color:"#e8e8f0"}}>{ch.messages||0}</span>
+                  </span>
+                  <span style={{color:"#9898b8"}}>
+                    Sygn: <span style={{color:GREEN}}>{ch.signals||0}</span>
+                  </span>
+                </span>
+              </div>
+              <div style={{display:"flex",gap:20,fontSize:10}}>
+                <span style={{color:isSilent?"#ffe066":"#7878a0"}}>
+                  Ostatnia wiad: {lastMsgStr}
+                </span>
+                {ch.last_signal_text&&(
+                  <span style={{color:"#5a5a7a"}}>
+                    Ostatni sygnał: <span style={{color:"#a0a0c0"}}>{ch.last_signal_text}</span>
+                    {ch.last_signal&&(
+                      <span style={{color:"#5a5a7a",marginLeft:4}}>
+                        ({Math.floor((Date.now()-new Date(ch.last_signal))/60000)}m temu)
+                      </span>
+                    )}
+                  </span>
+                )}
+              </div>
+              {ch.error&&<div style={{color:"#ff5c7a",fontSize:10,marginTop:3}}>{ch.error}</div>}
+            </div>
+          );
+        })}
+        {(!health.channels||Object.keys(health.channels).length===0)&&(
+          <div style={{color:"#7878a0",padding:20,textAlign:"center",fontSize:12}}>
+            Brak danych o kanałach
+          </div>
+        )}
+      </div>
+
+      {/* Debug nazwy — zwinięte */}
       <details style={{background:CARD,border:`1px solid ${BORDER}`,borderRadius:10,padding:"12px 16px"}}>
         <summary style={{color:"#9898b8",fontSize:11,cursor:"pointer",letterSpacing:1}}>
-          🔧 DEBUG — MAPOWANIE NAZW KANAŁÓW ({Object.keys(channelNames).length} wpisów)
+          🔧 DEBUG — MAPOWANIE NAZW ({Object.keys(channelNames).length} wpisów)
         </summary>
         <div style={{marginTop:10,fontFamily:"monospace",fontSize:11}}>
           {Object.entries(channelNames).map(([k,v])=>(
@@ -733,8 +854,8 @@ function BotHealthDashboard({health, channelNames, openPos}) {
               <span style={{color:GREEN}}>{v}</span>
             </div>
           ))}
-          <div style={{marginTop:10,color:"#9898b8",borderTop:`1px solid ${BORDER}`,paddingTop:8}}>
-            ID w pozycjach:
+          <div style={{marginTop:8,color:"#9898b8",borderTop:`1px solid ${BORDER}`,paddingTop:8}}>
+            ID w otwartych pozycjach:
           </div>
           {openPos.map(p=>(
             <div key={p.id} style={{padding:"2px 0"}}>
@@ -742,7 +863,7 @@ function BotHealthDashboard({health, channelNames, openPos}) {
               <span style={{color:"#5c5c7a"}}> ch: </span>
               <span style={{color:ORANGE}}>"{p.channel}"</span>
               <span style={{color:"#5c5c7a"}}> → </span>
-              <span style={{color:GREEN}}>"{lookupName(p.channel, channelNames)}"</span>
+              <span style={{color:GREEN}}>"{lookupName(p.channel,channelNames)}"</span>
             </div>
           ))}
         </div>
