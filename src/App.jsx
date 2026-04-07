@@ -88,11 +88,31 @@ const GREEN="#00e5ff",RED="#ff5c7a",BLUE="#00e5ff",PURPLE="#c4b5fd",
       YELLOW="#ffe066",ORANGE="#ffb347",BG="#484862",CARD="#3a3a52",BORDER="#5c5c7a";
 
 // ─── Inline channel rename ─────────────────────────────────────────────────────
+function normalizeId(id) {
+  // Try all variants: as-is, without leading minus, without -100 prefix
+  return String(id||"");
+}
+function lookupName(channelId, channelNames) {
+  const id = String(channelId||"");
+  // Try exact match first
+  if (channelNames[id]) return channelNames[id];
+  // Try without leading -100
+  const without100 = id.replace(/^-100/, "");
+  if (channelNames[without100]) return channelNames[without100];
+  // Try with -100 prefix added
+  const with100 = "-100" + id;
+  if (channelNames[with100]) return channelNames[with100];
+  // Try "m" prefix variant (Firebase doc ID)
+  const mVariant = id.replace(/^-/, "m");
+  if (channelNames[mVariant]) return channelNames[mVariant];
+  return id;
+}
+
 function ChannelTag({channelId, channelNames, onRename}) {
   const [editing, setEditing] = useState(false);
   const [val, setVal] = useState("");
   const inputRef = useRef(null);
-  const name = channelNames[channelId] || channelId || "?";
+  const name = lookupName(channelId, channelNames);
 
   const startEdit = (e) => {
     e.stopPropagation();
@@ -196,9 +216,7 @@ function PortfolioHeader({portfolio}){
 }
 
 // ─── Position Row — memoized to prevent collapse on re-render ─────────────────
-const PositionRow = ({ pos, channelNames, onRename, onClose }) => {
-  const [expanded, setExpanded] = useState(false);
-
+const PositionRow = ({ pos, channelNames, onRename, onClose, expanded, onToggle }) => {
   const pnl=pos.unrealized_pnl??0,pnlPct=pos.unrealized_pnl_pct??0;
   const isPos=pnl>=0,isLong=["LONG","SPOT_BUY"].includes(pos.signal_type);
   const accent=isLong?GREEN:RED;
@@ -286,6 +304,12 @@ const PositionRow = ({ pos, channelNames, onRename, onClose }) => {
 
 // ─── Positions Table ───────────────────────────────────────────────────────────
 function PositionsTable({positions,channelNames,onRename,onClose}){
+  // expandedIds lives HERE — survives Firebase re-renders
+  const [expandedIds, setExpandedIds] = useState({});
+  const toggle = useCallback((id) => {
+    setExpandedIds(prev => ({...prev, [id]: !prev[id]}));
+  }, []);
+
   if(!positions.length) return(
     <div style={{color:"#7878a0",padding:30,textAlign:"center",fontSize:13}}>Brak pozycji</div>
   );
@@ -303,7 +327,9 @@ function PositionsTable({positions,channelNames,onRename,onClose}){
         <tbody>
           {positions.map(pos=>(
             <PositionRow key={pos.id} pos={pos} channelNames={channelNames}
-              onRename={onRename} onClose={onClose}/>
+              onRename={onRename} onClose={onClose}
+              expanded={!!expandedIds[pos.id]}
+              onToggle={toggle}/>
           ))}
         </tbody>
       </table>
@@ -527,8 +553,15 @@ export default function App(){
       const names={};
       snap.forEach(d=>{
         const data=d.data();
-        names[data.channel]=data.name;
-        names[d.id]=data.name;
+        const name=data.name;
+        if(!name) return;
+        // Store under all possible variants
+        const bare = String(data.channel||"").replace(/^-100/,"");
+        names[bare] = name;                    // e.g. 1553551852
+        names["-100"+bare] = name;             // e.g. -1001553551852
+        names[d.id] = name;                    // Firebase doc ID
+        if(data.channel) names[data.channel]=name;
+        if(data.channel_full) names[data.channel_full]=name;
       });
       setChannelNames(names);
     }catch(e){console.error(e);}
@@ -537,12 +570,24 @@ export default function App(){
   useEffect(()=>{ loadChannelNames(); },[]);
 
   const handleRename = useCallback(async(channelId,newName)=>{
-    const docId = String(channelId).replace(/-/g,"m");
+    const id = String(channelId);
+    const without100 = id.replace(/^-100/, "");
+    const docId = without100.replace(/-/g,"m");
+    // Save with the bare ID (without -100) as the key
     await setDoc(doc(db,"channel_names",docId),{
-      name:newName, channel:String(channelId),
+      name:newName,
+      channel: without100,
+      channel_full: id,
       updated_at:new Date().toISOString()
     },{merge:true});
-    setChannelNames(prev=>({...prev,[channelId]:newName,[docId]:newName}));
+    // Update local state for all variants
+    setChannelNames(prev=>({
+      ...prev,
+      [id]:newName,
+      [without100]:newName,
+      [docId]:newName,
+      ["-100"+without100]:newName,
+    }));
   },[]);
 
   // Firebase listeners — use refs to keep stable data
