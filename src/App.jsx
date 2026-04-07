@@ -60,6 +60,37 @@ async function closePositionManually(positionId, currentPrice) {
       message:`Manual close @ ${currentPrice} | PnL: $${totalPnl}`,
       timestamp_iso:now,
     });
+
+    // BUG 7 FIX: Aktualizuj channel_stats przy ręcznym zamknięciu
+    try {
+      const bare = String(pos.channel||"").replace(/^-100/,"").replace(/[-/.]/g,"_");
+      if (bare) {
+        const statsRef = doc(db,"channel_stats",bare);
+        const statsSnap = await getDoc(statsRef);
+        const stats = statsSnap.exists() ? statsSnap.data() : {
+          channel: pos.channel||"?", total_trades:0, wins:0, losses:0,
+          total_pnl:0, best_trade:0, worst_trade:0, sl_hits:0, tp_hits:0,
+        };
+        const newTotal = (stats.total_trades||0)+1;
+        const newPnl = round2((stats.total_pnl||0)+totalPnl);
+        const newWins = pnl>=0 ? (stats.wins||0)+1 : (stats.wins||0);
+        const newLosses = pnl<0 ? (stats.losses||0)+1 : (stats.losses||0);
+        await setDoc(statsRef,{
+          ...stats,
+          total_trades: newTotal,
+          total_pnl: newPnl,
+          wins: newWins,
+          losses: newLosses,
+          win_rate: round2((newWins/newTotal)*100),
+          avg_pnl: round2(newPnl/newTotal),
+          best_trade: Math.max(stats.best_trade||0, totalPnl),
+          worst_trade: Math.min(stats.worst_trade||0, totalPnl),
+          updated_at: now,
+        },{merge:true});
+      }
+    } catch(statsErr) {
+      console.warn("channel_stats update failed:", statsErr);
+    }
   } catch(e) {
     alert("Błąd zamykania: " + e.message);
   }
