@@ -302,6 +302,11 @@ const PositionRow = ({ pos, channelNames, onRename, onClose }) => {
                       fontSize:12,fontFamily:"monospace",
                     }}>
                       {hit?"✓":"○"} TP{tp.level}: ${fmt(tp.price,4)}
+                      {tp.close_pct&&tp.close_pct!==50&&(
+                        <span style={{color:hit?GREEN+"88":"#5a5a7a",fontSize:10,marginLeft:6}}>
+                          ({tp.close_pct}%)
+                        </span>
+                      )}
                     </div>
                   );
                 })}
