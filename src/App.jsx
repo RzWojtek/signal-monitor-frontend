@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { initializeApp } from "firebase/app";
 import {
   getFirestore, collection, query, orderBy,
@@ -16,8 +16,10 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db  = getFirestore(app);
 
+const round2 = (n) => Math.round(n * 10000) / 10000;
+
 // ─── Close position from frontend ─────────────────────────────────────────────
-async function closePositionManually(positionId, currentPrice, reason="MANUAL_CLOSE") {
+async function closePositionManually(positionId, currentPrice) {
   try {
     const posRef = doc(db, "simulation_positions", positionId);
     const posSnap = await getDoc(posRef);
@@ -29,79 +31,108 @@ async function closePositionManually(positionId, currentPrice, reason="MANUAL_CL
     const qty = pos.quantity_remaining || pos.quantity;
     const allocated = pos.allocated_usd;
     const isLong = ["LONG","SPOT_BUY"].includes(pos.signal_type);
-    const pnl = isLong ? (currentPrice - entry)*qty : (entry - currentPrice)*qty;
+    const pnl = isLong ? (currentPrice-entry)*qty : (entry-currentPrice)*qty;
     const totalPnl = round2((pos.realized_pnl||0) + pnl);
-    const pnlPct = allocated ? round2((totalPnl / allocated)*100) : 0;
+    const pnlPct = allocated ? round2((totalPnl/allocated)*100) : 0;
     const now = new Date().toISOString();
 
-    // Close position
     await updateDoc(posRef, {
-      status: "CLOSED",
-      close_price: currentPrice,
-      close_reason: reason,
-      realized_pnl: totalPnl,
-      realized_pnl_pct: pnlPct,
-      unrealized_pnl: 0,
-      closed_at: now,
+      status:"CLOSED", close_price:currentPrice, close_reason:"MANUAL_CLOSE",
+      realized_pnl:totalPnl, realized_pnl_pct:pnlPct, unrealized_pnl:0, closed_at:now,
     });
 
-    // Update portfolio
-    const portRef = doc(db, "simulation", "portfolio");
+    const portRef = doc(db,"simulation","portfolio");
     const portSnap = await getDoc(portRef);
     const port = portSnap.exists() ? portSnap.data() : {};
-    const newCapital = round2((port.current_capital||0) + allocated + pnl);
-    const newRealized = round2((port.realized_pnl||0) + pnl);
-    const initial = port.initial_capital || 500;
+    const newCap = round2((port.current_capital||0) + allocated + pnl);
+    const newReal = round2((port.realized_pnl||0) + pnl);
+    const initial = port.initial_capital||500;
     await updateDoc(portRef, {
-      current_capital: newCapital,
-      realized_pnl: newRealized,
-      total_pnl: newRealized,
-      total_pnl_pct: round2((newRealized/initial)*100),
+      current_capital:newCap, realized_pnl:newReal, total_pnl:newReal,
+      total_pnl_pct:round2((newReal/initial)*100),
       wins: pnl>=0 ? (port.wins||0)+1 : (port.wins||0),
       losses: pnl<0 ? (port.losses||0)+1 : (port.losses||0),
     });
 
-    // Log event
-    await setDoc(doc(db, "simulation_log", Date.now().toString()), {
-      event_type: "CLOSE",
-      position_id: positionId,
-      symbol: pos.symbol,
-      signal_type: pos.signal_type,
-      channel: pos.channel||"?",
-      message: `Manual close @ ${currentPrice} | PnL: $${totalPnl}`,
-      timestamp_iso: now,
+    await setDoc(doc(db,"simulation_log",Date.now().toString()),{
+      event_type:"CLOSE", position_id:positionId, symbol:pos.symbol,
+      signal_type:pos.signal_type, channel:pos.channel||"?",
+      message:`Manual close @ ${currentPrice} | PnL: $${totalPnl}`,
+      timestamp_iso:now,
     });
-
-    console.log("Position closed:", positionId, "PnL:", totalPnl);
   } catch(e) {
-    console.error("Error closing position:", e);
-    alert("Błąd podczas zamykania pozycji: " + e.message);
+    alert("Błąd zamykania: " + e.message);
   }
 }
 
-const round2 = (n) => Math.round(n * 10000) / 10000;
-
 // ─── helpers ──────────────────────────────────────────────────────────────────
-const fmt   = (n, d=2) => n != null ? Number(n).toFixed(d) : "—";
-const fmtK  = (n) => n != null ? `$${Number(n).toFixed(2)}` : "—";
-const pct   = (n) => n != null ? `${Number(n).toFixed(2)}%` : "—";
+const fmt   = (n,d=2) => n!=null ? Number(n).toFixed(d) : "—";
+const fmtK  = (n) => n!=null ? `$${Number(n).toFixed(2)}` : "—";
+const pct   = (n) => n!=null ? `${Number(n).toFixed(2)}%` : "—";
 const ago   = (ts) => {
-  if (!ts) return "—";
+  if(!ts) return "—";
   const d = ts.toDate ? ts.toDate() : new Date(ts);
   const s = Math.floor((Date.now()-d)/1000);
-  if (s<60) return `${s}s temu`;
-  if (s<3600) return `${Math.floor(s/60)}m temu`;
-  if (s<86400) return `${Math.floor(s/3600)}h temu`;
+  if(s<60) return `${s}s temu`;
+  if(s<3600) return `${Math.floor(s/60)}m temu`;
+  if(s<86400) return `${Math.floor(s/3600)}h temu`;
   return d.toLocaleDateString("pl-PL");
 };
 const fmtDt = (ts) => {
-  if (!ts) return "—";
+  if(!ts) return "—";
   const d = ts.toDate ? ts.toDate() : new Date(ts);
   return d.toLocaleString("pl-PL");
 };
 
 const GREEN="#00e5ff",RED="#ff5c7a",BLUE="#00e5ff",PURPLE="#c4b5fd",
       YELLOW="#ffe066",ORANGE="#ffb347",BG="#484862",CARD="#3a3a52",BORDER="#5c5c7a";
+
+// ─── Inline channel rename ─────────────────────────────────────────────────────
+function ChannelTag({channelId, channelNames, onRename}) {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState("");
+  const inputRef = useRef(null);
+  const name = channelNames[channelId] || channelId || "?";
+
+  const startEdit = (e) => {
+    e.stopPropagation();
+    setVal(name);
+    setEditing(true);
+    setTimeout(() => inputRef.current?.focus(), 50);
+  };
+  const save = async (e) => {
+    e?.stopPropagation();
+    if (val.trim()) await onRename(channelId, val.trim());
+    setEditing(false);
+  };
+  const onKey = (e) => {
+    e.stopPropagation();
+    if (e.key === "Enter") save();
+    if (e.key === "Escape") setEditing(false);
+  };
+
+  if (editing) return (
+    <div style={{display:"flex",gap:4,alignItems:"center"}} onClick={e=>e.stopPropagation()}>
+      <input ref={inputRef} value={val}
+        onChange={e=>setVal(e.target.value)} onKeyDown={onKey}
+        style={{background:"#2a2a42",border:`1px solid ${GREEN}`,borderRadius:4,
+          padding:"2px 6px",color:"#fff",fontFamily:"monospace",fontSize:11,width:110}}/>
+      <button onClick={save}
+        style={{background:GREEN+"33",color:GREEN,border:`1px solid ${GREEN}55`,
+          borderRadius:3,padding:"1px 6px",cursor:"pointer",fontSize:10,fontFamily:"monospace"}}>✓</button>
+      <button onClick={e=>{e.stopPropagation();setEditing(false);}}
+        style={{background:"transparent",color:"#888",border:"1px solid #5c5c7a",
+          borderRadius:3,padding:"1px 6px",cursor:"pointer",fontSize:10,fontFamily:"monospace"}}>✕</button>
+    </div>
+  );
+
+  return (
+    <span onClick={startEdit} title="Kliknij aby zmienić nazwę" style={{
+      color:PURPLE,fontSize:11,cursor:"pointer",borderBottom:`1px dashed ${PURPLE}55`,
+      whiteSpace:"nowrap",maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",display:"inline-block",
+    }}>{name}</span>
+  );
+}
 
 const Pill=({label,color=GREEN})=>(
   <span style={{background:color+"22",color,border:`1px solid ${color}44`,
@@ -120,19 +151,19 @@ const StatCard=({label,value,sub,color="#fff"})=>(
 
 // ─── Portfolio Header ──────────────────────────────────────────────────────────
 function PortfolioHeader({portfolio}){
-  if(!portfolio) return <div style={{color:"#7878a0",padding:20,textAlign:"center"}}>Ładowanie portfela...</div>;
-  const pnl=portfolio.total_pnl??0, pnlPct=portfolio.total_pnl_pct??0;
-  const capital=portfolio.current_capital??0, initial=portfolio.initial_capital??500;
-  const wins=portfolio.wins??0, losses=portfolio.losses??0, total=portfolio.total_trades??0;
+  if(!portfolio) return <div style={{color:"#9898b8",padding:20,textAlign:"center"}}>Ładowanie...</div>;
+  const pnl=portfolio.total_pnl??0,pnlPct=portfolio.total_pnl_pct??0;
+  const capital=portfolio.current_capital??0,initial=portfolio.initial_capital??500;
+  const wins=portfolio.wins??0,losses=portfolio.losses??0,total=portfolio.total_trades??0;
   const wr=total>0?((wins/total)*100).toFixed(0):0;
   const isPos=pnl>=0;
   return(
-    <div style={{background:CARD,border:`1px solid ${isPos?GREEN+"40":RED+"40"}`,borderRadius:12,padding:"20px 24px",marginBottom:24}}>
+    <div style={{background:CARD,border:`1px solid ${isPos?GREEN+"50":RED+"50"}`,borderRadius:12,padding:"20px 24px",marginBottom:24}}>
       <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16,flexWrap:"wrap"}}>
         <span style={{fontSize:22}}>💼</span>
         <div>
           <div style={{color:"#fff",fontWeight:800,fontSize:15,letterSpacing:2}}>PORTFEL SYMULACJI</div>
-          <div style={{color:"#9898b8",fontSize:11}}>Start: {fmtDt(portfolio.created_at)} · Kapitał startowy: {fmtK(initial)}</div>
+          <div style={{color:"#9898b8",fontSize:11}}>Start: {fmtDt(portfolio.created_at)} · Kapitał: {fmtK(initial)}</div>
         </div>
         <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:6}}>
           <span style={{width:8,height:8,borderRadius:"50%",background:GREEN,display:"inline-block",animation:"pulse 2s infinite"}}/>
@@ -164,9 +195,97 @@ function PortfolioHeader({portfolio}){
   );
 }
 
+// ─── Position Row — memoized to prevent collapse on re-render ─────────────────
+const PositionRow = ({ pos, channelNames, onRename, onClose }) => {
+  const [expanded, setExpanded] = useState(false);
+
+  const pnl=pos.unrealized_pnl??0,pnlPct=pos.unrealized_pnl_pct??0;
+  const isPos=pnl>=0,isLong=["LONG","SPOT_BUY"].includes(pos.signal_type);
+  const accent=isLong?GREEN:RED;
+  const tpsHit=pos.tps_hit?.length??0,tpsTotal=pos.take_profits?.length??0;
+  const slMoved=pos.sl_moved_to_be;
+
+  return(<>
+    <tr onClick={()=>setExpanded(p=>!p)}
+      style={{borderBottom:`1px solid ${BORDER}`,cursor:"pointer",transition:"background 0.15s"}}
+      onMouseEnter={e=>e.currentTarget.style.background="#ffffff08"}
+      onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+      <td style={{padding:"10px 10px",color:"#fff",fontWeight:700}}>
+        <span style={{borderLeft:`3px solid ${accent}`,paddingLeft:8}}>{pos.symbol}</span>
+      </td>
+      <td style={{padding:"10px 10px"}}><Pill label={pos.signal_type} color={accent}/></td>
+      <td style={{padding:"10px 10px",color:"#b8b8d0"}}>${fmt(pos.entry_price,4)}</td>
+      <td style={{padding:"10px 10px",color:isPos?GREEN:RED,fontWeight:600}}>${fmt(pos.current_price,4)}</td>
+      <td style={{padding:"10px 10px"}}>
+        <span style={{color:RED+"cc"}}>{pos.stop_loss?`$${fmt(pos.stop_loss,4)}`:"—"}</span>
+        {slMoved&&<span style={{color:YELLOW,fontSize:10,marginLeft:4}}>BE</span>}
+      </td>
+      <td style={{padding:"10px 10px"}}>
+        {tpsTotal>0
+          ?<span style={{color:tpsHit>0?GREEN:"#7878a0"}}>{tpsHit}/{tpsTotal}</span>
+          :<span style={{color:"#7878a0"}}>—</span>}
+      </td>
+      <td style={{padding:"10px 10px",color:"#a8a8c8"}}>
+        {fmtK(pos.allocated_usd)}
+        {pos.leverage>1&&<span style={{color:YELLOW,marginLeft:4}}>x{pos.leverage}</span>}
+      </td>
+      <td style={{padding:"10px 10px"}}>
+        <span style={{color:isPos?GREEN:RED,fontWeight:700}}>{isPos?"+":""}{fmtK(pnl)}</span>
+        <span style={{color:isPos?GREEN+"88":RED+"88",marginLeft:6,fontSize:11}}>({isPos?"+":""}{pct(pnlPct)})</span>
+      </td>
+      <td style={{padding:"10px 10px"}} onClick={e=>e.stopPropagation()}>
+        <ChannelTag channelId={pos.channel} channelNames={channelNames} onRename={onRename}/>
+      </td>
+      <td style={{padding:"10px 10px",color:"#9898b8",fontSize:11}}>{ago(pos.opened_at)}</td>
+      <td style={{padding:"10px 10px"}} onClick={e=>e.stopPropagation()}>
+        <button onClick={()=>{
+          if(window.confirm(`Zamknąć ${pos.symbol} @ $${pos.current_price}?`))
+            onClose(pos.id, pos.current_price||pos.entry_price);
+        }} style={{background:RED+"22",color:RED,border:`1px solid ${RED}44`,
+          borderRadius:4,padding:"3px 10px",cursor:"pointer",fontSize:10,
+          fontFamily:"monospace",whiteSpace:"nowrap"}}>✕ Zamknij</button>
+      </td>
+    </tr>
+    {expanded&&(
+      <tr>
+        <td colSpan={11} style={{padding:"0 10px 12px 10px",background:"#32324a"}}>
+          <div style={{padding:12,borderRadius:8,border:`1px solid ${accent}22`,display:"flex",gap:24,flexWrap:"wrap"}}>
+            <div>
+              <div style={{color:"#9898b8",fontSize:10,marginBottom:4}}>TAKE PROFITS</div>
+              {pos.take_profits?.length?pos.take_profits.map(tp=>(
+                <div key={tp.level} style={{color:pos.tps_hit?.includes(tp.level)?GREEN:"#7878a0",fontSize:12}}>
+                  {pos.tps_hit?.includes(tp.level)?"✓ ":"○ "}TP{tp.level}: ${fmt(tp.price,4)}
+                </div>
+              )):<span style={{color:"#7878a0"}}>Brak TP</span>}
+            </div>
+            <div>
+              <div style={{color:"#9898b8",fontSize:10,marginBottom:4}}>PARTIAL CLOSES</div>
+              {pos.partial_closes?.length?pos.partial_closes.map((pc,i)=>(
+                <div key={i} style={{color:GREEN,fontSize:11}}>TP{pc.tp_level}: +${fmt(pc.pnl,2)} @ ${fmt(pc.price,4)}</div>
+              )):<span style={{color:"#7878a0",fontSize:12}}>Brak</span>}
+            </div>
+            <div>
+              <div style={{color:"#9898b8",fontSize:10,marginBottom:4}}>SZCZEGÓŁY</div>
+              <div style={{color:"#a0a0c0",fontSize:12}}>Qty: {pos.quantity_remaining||pos.quantity}</div>
+              <div style={{color:"#a0a0c0",fontSize:12}}>Ryzyko: {pos.risk_pct}%</div>
+              <div style={{color:slMoved?YELLOW:"#a0a0c0",fontSize:12}}>
+                SL: {pos.stop_loss?`$${fmt(pos.stop_loss,4)}`:"—"} {slMoved?"(BE)":""}
+              </div>
+              <div style={{color:"#a0a0c0",fontSize:12}}>Entry type: {pos.entry_type}</div>
+            </div>
+            <div>
+              <div style={{color:"#9898b8",fontSize:10,marginBottom:4}}>OTWARTO</div>
+              <div style={{color:"#a0a0c0",fontSize:12}}>{fmtDt(pos.opened_at)}</div>
+            </div>
+          </div>
+        </td>
+      </tr>
+    )}
+  </>);
+};
+
 // ─── Positions Table ───────────────────────────────────────────────────────────
-function PositionsTable({positions,channelNames,onClose}){
-  const [expandedId,setExpandedId]=useState(null);
+function PositionsTable({positions,channelNames,onRename,onClose}){
   if(!positions.length) return(
     <div style={{color:"#7878a0",padding:30,textAlign:"center",fontSize:13}}>Brak pozycji</div>
   );
@@ -182,92 +301,10 @@ function PositionsTable({positions,channelNames,onClose}){
           </tr>
         </thead>
         <tbody>
-          {positions.map(pos=>{
-            const pnl=pos.unrealized_pnl??0, pnlPct=pos.unrealized_pnl_pct??0;
-            const isPos=pnl>=0, isLong=["LONG","SPOT_BUY"].includes(pos.signal_type);
-            const accent=isLong?GREEN:RED;
-            const tpsHit=pos.tps_hit?.length??0, tpsTotal=pos.take_profits?.length??0;
-            const slMoved=pos.sl_moved_to_be;
-            const chName=channelNames[pos.channel]||pos.channel_name||pos.channel||"?";
-            return(<>
-              <tr key={pos.id}
-                onClick={()=>setExpandedId(expandedId===pos.id?null:pos.id)}
-                style={{borderBottom:`1px solid ${BORDER}`,cursor:"pointer"}}
-                onMouseEnter={e=>e.currentTarget.style.background="#ffffff05"}
-                onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-                <td style={{padding:"10px 10px",color:"#fff",fontWeight:700}}>
-                  <span style={{borderLeft:`3px solid ${accent}`,paddingLeft:8}}>{pos.symbol}</span>
-                </td>
-                <td style={{padding:"10px 10px"}}><Pill label={pos.signal_type} color={accent}/></td>
-                <td style={{padding:"10px 10px",color:"#b8b8d0"}}>${fmt(pos.entry_price,4)}</td>
-                <td style={{padding:"10px 10px",color:isPos?GREEN:RED}}>${fmt(pos.current_price,4)}</td>
-                <td style={{padding:"10px 10px"}}>
-                  <span style={{color:RED+"bb"}}>{pos.stop_loss?`$${fmt(pos.stop_loss,4)}`:"—"}</span>
-                  {slMoved&&<span style={{color:YELLOW,fontSize:10,marginLeft:4}}>BE</span>}
-                </td>
-                <td style={{padding:"10px 10px"}}>
-                  {tpsTotal>0?<span style={{color:tpsHit>0?GREEN:"#555"}}>{tpsHit}/{tpsTotal}</span>:<span style={{color:"#7878a0"}}>—</span>}
-                </td>
-                <td style={{padding:"10px 10px",color:"#a8a8c8"}}>
-                  {fmtK(pos.allocated_usd)}
-                  {pos.leverage>1&&<span style={{color:YELLOW,marginLeft:4}}>x{pos.leverage}</span>}
-                </td>
-                <td style={{padding:"10px 10px"}}>
-                  <span style={{color:isPos?GREEN:RED,fontWeight:700}}>{isPos?"+":""}{fmtK(pnl)}</span>
-                  <span style={{color:isPos?GREEN+"88":RED+"88",marginLeft:6,fontSize:11}}>({isPos?"+":""}{pct(pnlPct)})</span>
-                </td>
-                <td style={{padding:"10px 10px",color:PURPLE,fontSize:11,maxWidth:100,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}
-                  title={chName}>{chName}</td>
-                <td style={{padding:"10px 10px",color:"#9898b8",fontSize:11}}>{ago(pos.opened_at)}</td>
-                <td style={{padding:"10px 10px"}} onClick={e=>e.stopPropagation()}>
-                  <button onClick={()=>{
-                    if(window.confirm(`Zamknąć ${pos.symbol} po cenie ${pos.current_price}?`)){
-                      onClose(pos.id, pos.current_price||pos.entry_price);
-                    }
-                  }} style={{
-                    background:RED+"22",color:RED,border:`1px solid ${RED}44`,
-                    borderRadius:4,padding:"3px 10px",cursor:"pointer",
-                    fontSize:10,fontFamily:"monospace",whiteSpace:"nowrap",
-                  }}>✕ Zamknij</button>
-                </td>
-              </tr>
-              {expandedId===pos.id&&(
-                <tr key={pos.id+"_exp"}>
-                  <td colSpan={11} style={{padding:"0 10px 12px 10px",background:"#32324a"}}>
-                    <div style={{padding:12,borderRadius:8,border:`1px solid ${accent}22`,display:"flex",gap:24,flexWrap:"wrap"}}>
-                      <div>
-                        <div style={{color:"#9898b8",fontSize:10,marginBottom:4}}>TAKE PROFITS</div>
-                        {pos.take_profits?.length?pos.take_profits.map(tp=>(
-                          <div key={tp.level} style={{color:pos.tps_hit?.includes(tp.level)?GREEN:"#555",fontSize:12}}>
-                            {pos.tps_hit?.includes(tp.level)?"✓ ":"○ "}TP{tp.level}: ${fmt(tp.price,4)}
-                          </div>
-                        )):<span style={{color:"#9898b8"}}>Brak TP</span>}
-                      </div>
-                      <div>
-                        <div style={{color:"#9898b8",fontSize:10,marginBottom:4}}>PARTIAL CLOSES</div>
-                        {pos.partial_closes?.length?pos.partial_closes.map((pc,i)=>(
-                          <div key={i} style={{color:GREEN,fontSize:11}}>TP{pc.tp_level}: +${fmt(pc.pnl,2)} @ ${fmt(pc.price,4)}</div>
-                        )):<span style={{color:"#9898b8",fontSize:12}}>Brak</span>}
-                      </div>
-                      <div>
-                        <div style={{color:"#9898b8",fontSize:10,marginBottom:4}}>SZCZEGÓŁY</div>
-                        <div style={{color:"#a0a0c0",fontSize:12}}>Qty total: {pos.quantity}</div>
-                        <div style={{color:"#a0a0c0",fontSize:12}}>Qty remaining: {pos.quantity_remaining||pos.quantity}</div>
-                        <div style={{color:"#a0a0c0",fontSize:12}}>Ryzyko: {pos.risk_pct}%</div>
-                        <div style={{color:"#a0a0c0",fontSize:12}}>SL original: {pos.original_stop_loss?`$${fmt(pos.original_stop_loss,4)}`:"—"}</div>
-                        <div style={{color:slMoved?YELLOW:"#555",fontSize:12}}>SL aktualny: {pos.stop_loss?`$${fmt(pos.stop_loss,4)}`:"—"} {slMoved?"(BE)":""}</div>
-                      </div>
-                      <div>
-                        <div style={{color:"#9898b8",fontSize:10,marginBottom:4}}>OTWARTO</div>
-                        <div style={{color:"#a0a0c0",fontSize:12}}>{fmtDt(pos.opened_at)}</div>
-                        <div style={{color:"#a0a0c0",fontSize:12}}>Kanał: {chName}</div>
-                      </div>
-                    </div>
-                  </td>
-                </tr>
-              )}
-            </>);
-          })}
+          {positions.map(pos=>(
+            <PositionRow key={pos.id} pos={pos} channelNames={channelNames}
+              onRename={onRename} onClose={onClose}/>
+          ))}
         </tbody>
       </table>
     </div>
@@ -275,37 +312,39 @@ function PositionsTable({positions,channelNames,onClose}){
 }
 
 // ─── Closed Positions ──────────────────────────────────────────────────────────
-function ClosedTable({positions,channelNames}){
-  if(!positions.length) return <div style={{color:"#7878a0",textAlign:"center",padding:20,fontSize:13}}>Brak zamkniętych pozycji</div>;
+function ClosedTable({positions,channelNames,onRename}){
+  if(!positions.length) return <div style={{color:"#7878a0",textAlign:"center",padding:20,fontSize:13}}>Brak zamkniętych</div>;
   return(
     <div style={{overflowX:"auto"}}>
       <table style={{width:"100%",borderCollapse:"collapse",fontFamily:"monospace",fontSize:12}}>
         <thead>
           <tr style={{borderBottom:`1px solid ${BORDER}`}}>
             {["Symbol","Typ","Entry","Exit","P&L $","P&L %","Powód","Kanał","Czas"].map(h=>(
-              <th key={h} style={{color:"#9898b8",fontSize:10,letterSpacing:1,padding:"8px 10px",textAlign:"left",textTransform:"uppercase"}}>{h}</th>
+              <th key={h} style={{color:"#9898b8",fontSize:10,letterSpacing:1,padding:"8px 10px",
+                textAlign:"left",textTransform:"uppercase"}}>{h}</th>
             ))}
           </tr>
         </thead>
         <tbody>
           {positions.map(pos=>{
-            const pnl=pos.realized_pnl??0, pnlPct=pos.realized_pnl_pct??0;
-            const isPos=pnl>=0, isLong=["LONG","SPOT_BUY"].includes(pos.signal_type);
-            const chName=channelNames[pos.channel]||pos.channel_name||pos.channel||"?";
+            const pnl=pos.realized_pnl??0,pnlPct=pos.realized_pnl_pct??0;
+            const isPos=pnl>=0,isLong=["LONG","SPOT_BUY"].includes(pos.signal_type);
             return(
               <tr key={pos.id} style={{borderBottom:`1px solid ${BORDER}22`}}
-                onMouseEnter={e=>e.currentTarget.style.background="#ffffff04"}
+                onMouseEnter={e=>e.currentTarget.style.background="#ffffff05"}
                 onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-                <td style={{padding:"8px 10px",color:"#b8b8d0",fontWeight:600}}>{pos.symbol}</td>
+                <td style={{padding:"8px 10px",color:"#e8e8f0",fontWeight:600}}>{pos.symbol}</td>
                 <td style={{padding:"8px 10px"}}><Pill label={pos.signal_type} color={isLong?GREEN:RED}/></td>
                 <td style={{padding:"8px 10px",color:"#a0a0c0"}}>${fmt(pos.entry_price,4)}</td>
                 <td style={{padding:"8px 10px",color:"#a0a0c0"}}>${fmt(pos.close_price,4)}</td>
                 <td style={{padding:"8px 10px",fontWeight:700,color:isPos?GREEN:RED}}>{isPos?"+":""}{fmtK(pnl)}</td>
                 <td style={{padding:"8px 10px",color:isPos?GREEN+"99":RED+"99"}}>{isPos?"+":""}{pct(pnlPct)}</td>
                 <td style={{padding:"8px 10px"}}>
-                  <Pill label={pos.close_reason||"?"} color={pos.close_reason?.includes("TP")?GREEN:pos.close_reason==="SL_HIT"?RED:"#666"}/>
+                  <Pill label={pos.close_reason||"?"} color={pos.close_reason?.includes("TP")?GREEN:pos.close_reason==="SL_HIT"?RED:"#888"}/>
                 </td>
-                <td style={{padding:"8px 10px",color:PURPLE,fontSize:11}}>{chName}</td>
+                <td style={{padding:"8px 10px"}} onClick={e=>e.stopPropagation()}>
+                  <ChannelTag channelId={pos.channel} channelNames={channelNames} onRename={onRename}/>
+                </td>
                 <td style={{padding:"8px 10px",color:"#9898b8",fontSize:11}}>{ago(pos.closed_at)}</td>
               </tr>
             );
@@ -318,91 +357,53 @@ function ClosedTable({positions,channelNames}){
 
 // ─── Channel Stats ─────────────────────────────────────────────────────────────
 function ChannelStats({channelStats,channelNames,onRename}){
-  const [editing,setEditing]=useState(null);
-  const [editVal,setEditVal]=useState("");
-
-  const startEdit=(id,current)=>{
-    setEditing(id);
-    setEditVal(current||"");
-  };
-  const saveEdit=async(id)=>{
-    await onRename(id,editVal);
-    setEditing(null);
-  };
-
   if(!channelStats.length) return(
     <div style={{color:"#7878a0",padding:40,textAlign:"center",fontSize:13}}>
       Brak danych — pojawią się po zamknięciu pierwszych pozycji
     </div>
   );
-
   return(
     <div>
-      <div style={{color:"#9898b8",fontSize:11,letterSpacing:2,marginBottom:16}}>
-        RANKING KANAŁÓW — opłacalność sygnałów
-      </div>
-      {channelStats.sort((a,b)=>(b.total_pnl||0)-(a.total_pnl||0)).map(ch=>{
-        const isPos=(ch.total_pnl||0)>=0;
-        const wr=ch.win_rate||0;
+      <div style={{color:"#9898b8",fontSize:11,letterSpacing:2,marginBottom:16}}>RANKING KANAŁÓW</div>
+      {[...channelStats].sort((a,b)=>(b.total_pnl||0)-(a.total_pnl||0)).map(ch=>{
+        const isPos=(ch.total_pnl||0)>=0,wr=ch.win_rate||0;
         const wrColor=wr>=60?GREEN:wr>=40?YELLOW:RED;
         const chId=ch.channel||"?";
-        const displayName=channelNames[chId]||ch.channel_name||chId;
         return(
           <div key={ch.id||chId} style={{
             background:CARD,border:`1px solid ${isPos?GREEN+"25":RED+"25"}`,
             borderLeft:`3px solid ${isPos?GREEN:RED}`,
-            borderRadius:8,padding:"16px 20px",marginBottom:10,
-          }}>
+            borderRadius:8,padding:"16px 20px",marginBottom:10}}>
             <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12,flexWrap:"wrap"}}>
-              {editing===chId?(
-                <div style={{display:"flex",gap:6,alignItems:"center"}}>
-                  <input value={editVal} onChange={e=>setEditVal(e.target.value)}
-                    onKeyDown={e=>e.key==="Enter"&&saveEdit(chId)}
-                    style={{background:"#2e2e46",border:`1px solid ${BLUE}`,borderRadius:4,
-                      padding:"4px 10px",color:"#fff",fontFamily:"monospace",fontSize:13}}
-                    autoFocus/>
-                  <button onClick={()=>saveEdit(chId)} style={{
-                    background:GREEN+"22",color:GREEN,border:`1px solid ${GREEN}44`,
-                    borderRadius:4,padding:"4px 10px",cursor:"pointer",fontSize:11,fontFamily:"monospace"}}>
-                    Zapisz
-                  </button>
-                  <button onClick={()=>setEditing(null)} style={{
-                    background:"transparent",color:"#a0a0c0",border:"1px solid #333",
-                    borderRadius:4,padding:"4px 10px",cursor:"pointer",fontSize:11,fontFamily:"monospace"}}>
-                    Anuluj
-                  </button>
-                </div>
-              ):(
-                <div style={{display:"flex",alignItems:"center",gap:8}}>
-                  <span style={{color:"#fff",fontWeight:700,fontSize:14,fontFamily:"monospace"}}>{displayName}</span>
-                  <button onClick={()=>startEdit(chId,displayName)} style={{
-                    background:"transparent",color:"#9898b8",border:"1px solid #2a3040",
-                    borderRadius:4,padding:"2px 8px",cursor:"pointer",fontSize:10,fontFamily:"monospace"}}>
-                    ✏ zmień nazwę
-                  </button>
-                </div>
-              )}
+              <ChannelTag channelId={chId} channelNames={channelNames} onRename={onRename}/>
+              <span style={{color:"#9898b8",fontSize:11}}>({chId})</span>
               <span style={{marginLeft:"auto",color:isPos?GREEN:RED,fontFamily:"monospace",fontWeight:700,fontSize:16}}>
                 {isPos?"+":""}{fmtK(ch.total_pnl)}
               </span>
             </div>
             <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(100px,1fr))",gap:10}}>
-              <MiniStat label="Win Rate" value={`${wr}%`} color={wrColor}/>
-              <MiniStat label="Trades" value={ch.total_trades||0} color={BLUE}/>
-              <MiniStat label="Wins" value={ch.wins||0} color={GREEN}/>
-              <MiniStat label="Losses" value={ch.losses||0} color={RED}/>
-              <MiniStat label="SL trafione" value={ch.sl_hits||0} color={RED}/>
-              <MiniStat label="TP trafione" value={ch.tp_hits||0} color={GREEN}/>
-              <MiniStat label="Avg P&L" value={fmtK(ch.avg_pnl)} color={isPos?GREEN:RED}/>
-              <MiniStat label="Najlepszy" value={fmtK(ch.best_trade)} color={GREEN}/>
-              <MiniStat label="Najgorszy" value={fmtK(ch.worst_trade)} color={RED}/>
+              {[
+                {l:"Win Rate",v:`${wr}%`,c:wrColor},
+                {l:"Trades",v:ch.total_trades||0,c:BLUE},
+                {l:"Wins",v:ch.wins||0,c:GREEN},
+                {l:"Losses",v:ch.losses||0,c:RED},
+                {l:"SL trafione",v:ch.sl_hits||0,c:RED},
+                {l:"TP trafione",v:ch.tp_hits||0,c:GREEN},
+                {l:"Avg P&L",v:fmtK(ch.avg_pnl),c:isPos?GREEN:RED},
+                {l:"Najlepszy",v:fmtK(ch.best_trade),c:GREEN},
+                {l:"Najgorszy",v:fmtK(ch.worst_trade),c:RED},
+              ].map(s=>(
+                <div key={s.l}>
+                  <div style={{color:"#9898b8",fontSize:9,letterSpacing:1,textTransform:"uppercase"}}>{s.l}</div>
+                  <div style={{color:s.c,fontFamily:"monospace",fontSize:13,fontWeight:600}}>{s.v}</div>
+                </div>
+              ))}
             </div>
-            {/* Rekomendacja */}
             <div style={{marginTop:10,padding:"6px 12px",borderRadius:6,
-              background:wr>=55&&isPos?"#00ff9010":wr<40||!isPos?"#ff4d6d10":"#ffdb4d10",
+              background:wr>=55&&isPos?GREEN+"15":wr<40||!isPos?RED+"15":YELLOW+"15",
               border:`1px solid ${wr>=55&&isPos?GREEN+"30":wr<40||!isPos?RED+"30":YELLOW+"30"}`,
               fontSize:11,color:wr>=55&&isPos?GREEN:wr<40||!isPos?RED:YELLOW}}>
-              {wr>=55&&isPos?"✅ Warto kopiować sygnały":wr<40||!isPos?"❌ Słabe wyniki — rozważ usunięcie kanału":"⚠ Neutralne wyniki — obserwuj dalej"}
+              {wr>=55&&isPos?"✅ Warto kopiować":wr<40||!isPos?"❌ Słabe wyniki — rozważ usunięcie":"⚠ Neutralne — obserwuj dalej"}
             </div>
           </div>
         );
@@ -411,21 +412,13 @@ function ChannelStats({channelStats,channelNames,onRename}){
   );
 }
 
-const MiniStat=({label,value,color})=>(
-  <div>
-    <div style={{color:"#9898b8",fontSize:9,letterSpacing:1,textTransform:"uppercase"}}>{label}</div>
-    <div style={{color,fontFamily:"monospace",fontSize:13,fontWeight:600}}>{value}</div>
-  </div>
-);
-
-// ─── Signal Feed ───────────────────────────────────────────────────────────────
-function SignalCard({signal,channelNames}){
+// ─── Signal Card ───────────────────────────────────────────────────────────────
+function SignalCard({signal,channelNames,onRename}){
   const [expanded,setExpanded]=useState(false);
-  const isLong=signal.signal_type==="LONG", isShort=signal.signal_type==="SHORT";
+  const isLong=signal.signal_type==="LONG",isShort=signal.signal_type==="SHORT";
   const accent=isLong?GREEN:isShort?RED:BLUE;
-  const chName=channelNames[signal.channel]||signal.channel_name||signal.channel||"?";
   return(
-    <div onClick={()=>setExpanded(!expanded)} style={{
+    <div onClick={()=>setExpanded(p=>!p)} style={{
       background:CARD,border:`1px solid ${accent}22`,borderLeft:`3px solid ${accent}`,
       borderRadius:8,padding:"12px 14px",marginBottom:8,cursor:"pointer"}}>
       <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
@@ -433,16 +426,18 @@ function SignalCard({signal,channelNames}){
         <Pill label={signal.signal_type||"?"} color={accent}/>
         <span style={{color:"#7878a0",fontSize:10,fontFamily:"monospace"}}>[{signal.entry_type||"?"}]</span>
         <span style={{marginLeft:"auto",color:"#7878a0",fontSize:11}}>{ago(signal.timestamp)}</span>
-        <span style={{color:PURPLE,fontSize:11,padding:"1px 6px",border:`1px solid ${BORDER}`,borderRadius:3}}>{chName}</span>
+        <span onClick={e=>e.stopPropagation()}>
+          <ChannelTag channelId={signal.channel} channelNames={channelNames} onRename={onRename}/>
+        </span>
       </div>
       <div style={{display:"flex",gap:16,marginTop:8,flexWrap:"wrap"}}>
         <span style={{color:"#a8a8c8",fontSize:11}}>Entry: <span style={{color:accent}}>
           {signal.entry_range?`$${fmt(signal.entry_range.min,4)}–$${fmt(signal.entry_range.max,4)}`:
            signal.entry_price?`$${fmt(signal.entry_price,4)}`:"—"}
         </span></span>
-        <span style={{color:"#a8a8c8",fontSize:11}}>SL: <span style={{color:RED+"bb"}}>{signal.stop_loss?`$${fmt(signal.stop_loss,4)}`:"—"}</span></span>
+        <span style={{color:"#a8a8c8",fontSize:11}}>SL: <span style={{color:RED+"cc"}}>{signal.stop_loss?`$${fmt(signal.stop_loss,4)}`:"—"}</span></span>
         {signal.leverage&&<span style={{color:"#a8a8c8",fontSize:11}}>Dźwignia: <span style={{color:YELLOW}}>{signal.leverage}x</span></span>}
-        {signal.take_profits?.length>0&&<span style={{color:"#a8a8c8",fontSize:11}}>TPs: <span style={{color:GREEN+"bb"}}>{signal.take_profits.length}</span></span>}
+        {signal.take_profits?.length>0&&<span style={{color:"#a8a8c8",fontSize:11}}>TPs: <span style={{color:GREEN}}>{signal.take_profits.length}</span></span>}
       </div>
       {expanded&&(
         <div style={{marginTop:10,borderTop:`1px solid ${BORDER}`,paddingTop:10}}>
@@ -456,7 +451,7 @@ function SignalCard({signal,channelNames}){
               ))}
             </div>
           )}
-          <pre style={{background:"#2a2a40",color:"#3a4a5a",padding:10,borderRadius:6,fontSize:10,
+          <pre style={{background:"#2a2a40",color:"#9898b8",padding:10,borderRadius:6,fontSize:10,
             whiteSpace:"pre-wrap",wordBreak:"break-word",border:`1px solid ${BORDER}`,maxHeight:160,overflow:"auto",margin:0}}>
             {signal.raw_message}
           </pre>
@@ -467,22 +462,21 @@ function SignalCard({signal,channelNames}){
 }
 
 // ─── Event Log ─────────────────────────────────────────────────────────────────
-function EventLog({events,channelNames}){
-  const colorMap={OPEN:BLUE,CLOSE:PURPLE,TP_PARTIAL:GREEN,SL_TO_BE:YELLOW,UPDATE:YELLOW,TP_HIT:GREEN};
-  if(!events.length) return <div style={{color:"#7878a0",textAlign:"center",padding:30,fontSize:13}}>Log pusty</div>;
-  return events.map(e=>{
-    const chName=channelNames[e.channel]||e.channel||"?";
-    return(
-      <div key={e.id} style={{display:"flex",gap:10,alignItems:"flex-start",
-        padding:"8px 0",borderBottom:`1px solid ${BORDER}22`,fontSize:12,flexWrap:"wrap"}}>
-        <Pill label={e.event_type} color={colorMap[e.event_type]||"#666"}/>
-        <span style={{color:"#fff",fontFamily:"monospace",fontWeight:600,minWidth:80}}>{e.symbol}</span>
-        <span style={{color:PURPLE,fontSize:11,minWidth:80}}>{chName}</span>
-        <span style={{color:"#a0a0c0",flex:1}}>{e.message}</span>
-        <span style={{color:"#7878a0",fontSize:11,whiteSpace:"nowrap"}}>{ago(e.timestamp)}</span>
-      </div>
-    );
-  });
+function EventLog({events,channelNames,onRename}){
+  const colorMap={OPEN:BLUE,CLOSE:PURPLE,TP_PARTIAL:GREEN,SL_TO_BE:YELLOW,UPDATE:YELLOW};
+  if(!events.length) return <div style={{color:"#7878a0",textAlign:"center",padding:30}}>Log pusty</div>;
+  return events.map(e=>(
+    <div key={e.id} style={{display:"flex",gap:10,alignItems:"center",
+      padding:"8px 0",borderBottom:`1px solid ${BORDER}22`,fontSize:12,flexWrap:"wrap"}}>
+      <Pill label={e.event_type} color={colorMap[e.event_type]||"#888"}/>
+      <span style={{color:"#fff",fontFamily:"monospace",fontWeight:600,minWidth:80}}>{e.symbol}</span>
+      <span onClick={e2=>e2.stopPropagation()}>
+        <ChannelTag channelId={e.channel} channelNames={channelNames} onRename={onRename}/>
+      </span>
+      <span style={{color:"#a0a0c0",flex:1}}>{e.message}</span>
+      <span style={{color:"#7878a0",fontSize:11,whiteSpace:"nowrap"}}>{ago(e.timestamp)}</span>
+    </div>
+  ));
 }
 
 // ─── Tab Bar ───────────────────────────────────────────────────────────────────
@@ -494,15 +488,20 @@ const TABS=[
   {id:"signals",label:"📡 Sygnały"},
   {id:"log",label:"📝 Log"},
 ];
+
 function TabBar({active,onChange}){
   return(
-    <div style={{display:"flex",gap:4,borderBottom:`1px solid ${BORDER}`,marginBottom:20,overflowX:"auto"}}>
+    <div style={{display:"flex",gap:2,borderBottom:`1px solid ${BORDER}`,marginBottom:20,overflowX:"auto"}}>
       {TABS.map(t=>(
         <button key={t.id} onClick={()=>onChange(t.id)} style={{
-          background:active===t.id?BLUE+"15":"transparent",
-          color:active===t.id?BLUE:"#555",border:"none",
-          borderBottom:active===t.id?`2px solid ${BLUE}`:"2px solid transparent",
-          padding:"10px 16px",cursor:"pointer",fontFamily:"monospace",fontSize:12,fontWeight:600,whiteSpace:"nowrap"}}>
+          background:active===t.id?BLUE+"20":"transparent",
+          color:active===t.id?GREEN:"#ffffff",
+          border:"none",
+          borderBottom:active===t.id?`2px solid ${GREEN}`:"2px solid transparent",
+          padding:"10px 18px",cursor:"pointer",fontFamily:"monospace",
+          fontSize:12,fontWeight:active===t.id?700:500,whiteSpace:"nowrap",
+          transition:"all 0.15s",
+        }}>
           {t.label}
         </button>
       ))}
@@ -522,32 +521,31 @@ export default function App(){
   const [channelNames,setChannelNames]=useState({});
 
   // Load channel names from Firebase
-  useEffect(()=>{
-    const load=async()=>{
-      try{
-        const snap=await getDocs(collection(db,"channel_names"));
-        const names={};
-        snap.forEach(d=>{
-          const data=d.to_dict?d.to_dict():d.data();
-          // doc id is channel id with - replaced by m
-          const rawId=d.id.replace(/^m/,"-");
-          names[rawId]=data.name;
-          names[d.id]=data.name;
-        });
-        setChannelNames(names);
-      }catch(e){console.error(e);}
-    };
-    load();
+  const loadChannelNames = useCallback(async()=>{
+    try{
+      const snap=await getDocs(collection(db,"channel_names"));
+      const names={};
+      snap.forEach(d=>{
+        const data=d.data();
+        names[data.channel]=data.name;
+        names[d.id]=data.name;
+      });
+      setChannelNames(names);
+    }catch(e){console.error(e);}
   },[]);
 
-  const handleRename=async(channelId,newName)=>{
-    const docId=channelId.replace("-","m").replace(/^m/,"m");
-    await setDoc(doc(db,"channel_names",docId),{
-      name:newName, channel:channelId, updated_at:new Date().toISOString()
-    },{merge:true});
-    setChannelNames(prev=>({...prev,[channelId]:newName}));
-  };
+  useEffect(()=>{ loadChannelNames(); },[]);
 
+  const handleRename = useCallback(async(channelId,newName)=>{
+    const docId = String(channelId).replace(/-/g,"m");
+    await setDoc(doc(db,"channel_names",docId),{
+      name:newName, channel:String(channelId),
+      updated_at:new Date().toISOString()
+    },{merge:true});
+    setChannelNames(prev=>({...prev,[channelId]:newName,[docId]:newName}));
+  },[]);
+
+  // Firebase listeners — use refs to keep stable data
   useEffect(()=>onSnapshot(doc(db,"simulation","portfolio"),snap=>{
     if(snap.exists()) setPortfolio(snap.data());
   }),[]);
@@ -556,6 +554,7 @@ export default function App(){
     const q=query(collection(db,"simulation_positions"),orderBy("opened_at","desc"),limit(100));
     return onSnapshot(q,snap=>{
       const all=snap.docs.map(d=>({id:d.id,...d.data()}));
+      // Use functional updates to avoid triggering child re-renders unnecessarily
       setOpenPos(all.filter(p=>p.status==="OPEN"));
       setClosedPos(all.filter(p=>p.status==="CLOSED"));
     });
@@ -579,7 +578,9 @@ export default function App(){
 
   const Card=({children,color,title,count})=>(
     <div style={{background:CARD,border:`1px solid ${color||BORDER}`,borderRadius:10,padding:"16px 20px",marginBottom:20}}>
-      {title&&<div style={{color:color||"#444",fontSize:11,letterSpacing:2,marginBottom:14}}>{title}{count!=null&&` (${count})`}</div>}
+      {title&&<div style={{color:color||"#9898b8",fontSize:11,letterSpacing:2,marginBottom:14,fontFamily:"monospace"}}>
+        {title}{count!=null&&` (${count})`}
+      </div>}
       {children}
     </div>
   );
@@ -592,43 +593,47 @@ export default function App(){
         @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
         ::-webkit-scrollbar{width:5px;height:5px;}
         ::-webkit-scrollbar-track{background:${BG};}
-        ::-webkit-scrollbar-thumb{background:#1e2530;border-radius:3px;}
+        ::-webkit-scrollbar-thumb{background:#5c5c7a;border-radius:3px;}
         input:focus{outline:none;}
+        button:hover{opacity:0.85;}
       `}</style>
 
       {/* Navbar */}
-      <div style={{borderBottom:`1px solid ${BORDER}`,padding:"14px 24px",display:"flex",alignItems:"center",gap:10,background:CARD}}>
+      <div style={{borderBottom:`1px solid ${BORDER}`,padding:"14px 24px",
+        display:"flex",alignItems:"center",gap:10,background:CARD}}>
         <span style={{fontSize:18}}>📡</span>
         <div>
           <span style={{color:"#fff",fontWeight:800,fontSize:14,letterSpacing:2}}>SIGNAL MONITOR</span>
-          <span style={{color:"#7878a0",fontSize:11,marginLeft:12}}>Telegram → Firebase · Simulation · $500 · 3%</span>
+          <span style={{color:"#9898b8",fontSize:11,marginLeft:12}}>Telegram → Firebase · $500 · 3% / trade</span>
         </div>
         <div style={{marginLeft:"auto",display:"flex",gap:16,fontSize:11,fontFamily:"monospace"}}>
-          <span style={{color:"#7878a0"}}>Otwarte: <span style={{color:BLUE}}>{openPos.length}</span></span>
-          <span style={{color:"#7878a0"}}>Sygnały: <span style={{color:PURPLE}}>{signals.length}</span></span>
-          <span style={{color:"#7878a0"}}>Kanały: <span style={{color:ORANGE}}>{channelStats.length}</span></span>
+          <span style={{color:"#b8b8d0"}}>Otwarte: <span style={{color:GREEN}}>{openPos.length}</span></span>
+          <span style={{color:"#b8b8d0"}}>Sygnały: <span style={{color:PURPLE}}>{signals.length}</span></span>
+          <span style={{color:"#b8b8d0"}}>Kanały: <span style={{color:ORANGE}}>{channelStats.length}</span></span>
         </div>
       </div>
 
-      <div style={{maxWidth:1100,margin:"0 auto",padding:"24px 16px"}}>
+      <div style={{maxWidth:1200,margin:"0 auto",padding:"24px 16px"}}>
         <TabBar active={tab} onChange={setTab}/>
 
         {tab==="portfolio"&&(<>
           <PortfolioHeader portfolio={portfolio}/>
           {openPos.length>0&&<Card color={BLUE} title="OTWARTE POZYCJE" count={openPos.length}>
-            <PositionsTable positions={openPos} channelNames={channelNames} onClose={closePositionManually}/>
+            <PositionsTable positions={openPos} channelNames={channelNames}
+              onRename={handleRename} onClose={closePositionManually}/>
           </Card>}
-          {closedPos.length>0&&<Card color={PURPLE} title="OSTATNIE ZAMKNIĘTE" count={closedPos.length}>
-            <ClosedTable positions={closedPos.slice(0,5)} channelNames={channelNames}/>
+          {closedPos.length>0&&<Card color={PURPLE} title="OSTATNIE ZAMKNIĘTE">
+            <ClosedTable positions={closedPos.slice(0,5)} channelNames={channelNames} onRename={handleRename}/>
           </Card>}
         </>)}
 
         {tab==="open"&&<Card color={BLUE} title="OTWARTE POZYCJE" count={openPos.length}>
-          <PositionsTable positions={openPos} channelNames={channelNames} onClose={closePositionManually}/>
+          <PositionsTable positions={openPos} channelNames={channelNames}
+            onRename={handleRename} onClose={closePositionManually}/>
         </Card>}
 
         {tab==="closed"&&<Card color={PURPLE} title="ZAMKNIĘTE POZYCJE" count={closedPos.length}>
-          <ClosedTable positions={closedPos} channelNames={channelNames}/>
+          <ClosedTable positions={closedPos} channelNames={channelNames} onRename={handleRename}/>
         </Card>}
 
         {tab==="channels"&&<Card color={ORANGE} title="STATYSTYKI KANAŁÓW">
@@ -636,12 +641,12 @@ export default function App(){
         </Card>}
 
         {tab==="signals"&&<div>
-          <div style={{color:"#9898b8",fontSize:11,marginBottom:14,letterSpacing:2}}>OSTATNIE SYGNAŁY ({signals.length})</div>
-          {signals.map(s=><SignalCard key={s.id} signal={s} channelNames={channelNames}/>)}
+          <div style={{color:"#9898b8",fontSize:11,marginBottom:14,letterSpacing:2}}>SYGNAŁY ({signals.length})</div>
+          {signals.map(s=><SignalCard key={s.id} signal={s} channelNames={channelNames} onRename={handleRename}/>)}
         </div>}
 
-        {tab==="log"&&<Card color="#444" title="LOG ZDARZEŃ" count={logEvents.length}>
-          <EventLog events={logEvents} channelNames={channelNames}/>
+        {tab==="log"&&<Card color="#9898b8" title="LOG ZDARZEŃ" count={logEvents.length}>
+          <EventLog events={logEvents} channelNames={channelNames} onRename={handleRename}/>
         </Card>}
       </div>
     </div>
