@@ -237,104 +237,124 @@ const PositionRow = ({ pos, channelNames, onRename, onClose }) => {
   const tpsHit=pos.tps_hit?.length??0,tpsTotal=pos.take_profits?.length??0;
   const slMoved=pos.sl_moved_to_be;
 
-  return(
-    <div style={{
-      background:CARD, border:`1px solid ${accent}30`,
-      borderLeft:`4px solid ${accent}`,
-      borderRadius:8, marginBottom:10, overflow:"hidden",
-    }}>
-      {/* Górny pasek — główne dane */}
-      <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",
-        flexWrap:"wrap",borderBottom:`1px solid ${BORDER}`}}>
-        <span style={{color:"#fff",fontWeight:800,fontSize:14,fontFamily:"monospace",minWidth:120}}>
-          {pos.symbol}
-        </span>
-        <Pill label={pos.signal_type} color={accent}/>
-        {pos.leverage>1&&<Pill label={`x${pos.leverage}`} color={YELLOW}/>}
-        <span style={{color:"#9898b8",fontSize:11}}>
-          Entry: <span style={{color:"#e8e8f0"}}>${fmt(pos.entry_price,4)}</span>
-        </span>
-        <span style={{color:"#9898b8",fontSize:11}}>
-          Teraz: <span style={{color:isPos?GREEN:RED,fontWeight:700}}>${fmt(pos.current_price,4)}</span>
-        </span>
-        <span style={{color:"#9898b8",fontSize:11}}>
-          P&L: <span style={{color:isPos?GREEN:RED,fontWeight:700}}>
-            {isPos?"+":""}{fmtK(pnl)}
-          </span>
-          <span style={{color:isPos?GREEN+"88":RED+"88",marginLeft:4,fontSize:11}}>
-            ({isPos?"+":""}{pct(pnlPct)})
-          </span>
-        </span>
-        <span style={{color:"#9898b8",fontSize:11}}>
-          Alloc: <span style={{color:"#e8e8f0"}}>{fmtK(pos.allocated_usd)}</span>
-        </span>
-        <span style={{marginLeft:"auto",fontSize:11,color:"#9898b8"}}>{ago(pos.opened_at)}</span>
+  return(<>
+    {/* Główny wiersz */}
+    <tr style={{borderBottom:`1px solid ${BORDER}22`}}
+      onMouseEnter={e=>e.currentTarget.style.background="#ffffff05"}
+      onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+      <td style={{padding:"10px 10px",color:"#fff",fontWeight:700}}>
+        <span style={{borderLeft:`3px solid ${accent}`,paddingLeft:8}}>{pos.symbol}</span>
+      </td>
+      <td style={{padding:"10px 10px"}}><Pill label={pos.signal_type} color={accent}/></td>
+      <td style={{padding:"10px 10px",color:"#b8b8d0"}}>${fmt(pos.entry_price,4)}</td>
+      <td style={{padding:"10px 10px",color:isPos?GREEN:RED,fontWeight:600}}>${fmt(pos.current_price,4)}</td>
+      <td style={{padding:"10px 10px"}}>
+        <span style={{color:RED+"cc"}}>{pos.stop_loss?`$${fmt(pos.stop_loss,4)}`:"—"}</span>
+        {slMoved&&<span style={{color:YELLOW,fontSize:10,marginLeft:4}}>BE</span>}
+      </td>
+      <td style={{padding:"10px 10px"}}>
+        {tpsTotal>0
+          ?<span style={{color:tpsHit>0?GREEN:"#7878a0"}}>{tpsHit}/{tpsTotal}</span>
+          :<span style={{color:"#7878a0"}}>—</span>}
+      </td>
+      <td style={{padding:"10px 10px",color:"#a8a8c8"}}>
+        {fmtK(pos.allocated_usd)}
+        {pos.leverage>1&&<span style={{color:YELLOW,marginLeft:4}}>x{pos.leverage}</span>}
+      </td>
+      <td style={{padding:"10px 10px"}}>
+        <span style={{color:isPos?GREEN:RED,fontWeight:700}}>{isPos?"+":""}{fmtK(pnl)}</span>
+        <span style={{color:isPos?GREEN+"88":RED+"88",marginLeft:6,fontSize:11}}>({isPos?"+":""}{pct(pnlPct)})</span>
+      </td>
+      <td style={{padding:"10px 10px"}}>
         <ChannelTag channelId={pos.channel} channelNames={channelNames} onRename={onRename}/>
+      </td>
+      <td style={{padding:"10px 10px",color:"#9898b8",fontSize:11}}>{ago(pos.opened_at)}</td>
+      <td style={{padding:"10px 10px"}}>
         <button onClick={()=>{
           if(window.confirm(`Zamknąć ${pos.symbol} @ $${pos.current_price}?`))
             onClose(pos.id, pos.current_price||pos.entry_price);
         }} style={{background:RED+"22",color:RED,border:`1px solid ${RED}44`,
           borderRadius:4,padding:"3px 10px",cursor:"pointer",fontSize:10,
           fontFamily:"monospace",whiteSpace:"nowrap"}}>✕ Zamknij</button>
-      </div>
-
-      {/* Dolny panel — szczegóły zawsze widoczne */}
-      <div style={{display:"flex",gap:24,padding:"10px 14px",flexWrap:"wrap",background:"#32324a"}}>
-        {/* SL */}
-        <div>
-          <div style={{color:"#9898b8",fontSize:10,letterSpacing:1,marginBottom:4}}>STOP LOSS</div>
-          <div style={{color:RED+"cc",fontFamily:"monospace",fontSize:13}}>
-            {pos.stop_loss?`$${fmt(pos.stop_loss,4)}`:"—"}
-            {slMoved&&<span style={{color:YELLOW,fontSize:10,marginLeft:6}}>● BE</span>}
-          </div>
-        </div>
-
-        {/* TPs */}
-        <div>
-          <div style={{color:"#9898b8",fontSize:10,letterSpacing:1,marginBottom:4}}>
-            TAKE PROFITS {tpsTotal>0&&<span style={{color:tpsHit>0?GREEN:"#7878a0"}}>({tpsHit}/{tpsTotal} trafione)</span>}
-          </div>
-          {pos.take_profits?.length?(
-            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-              {pos.take_profits.map(tp=>{
-                const hit=pos.tps_hit?.includes(tp.level);
-                return(
-                  <span key={tp.level} style={{
-                    background:hit?GREEN+"22":"#2a2a42",
-                    color:hit?GREEN:"#9898b8",
-                    border:`1px solid ${hit?GREEN+"44":BORDER}`,
-                    borderRadius:4,padding:"2px 8px",fontSize:11,fontFamily:"monospace",
-                  }}>
-                    {hit?"✓ ":""}TP{tp.level}: ${fmt(tp.price,4)}
-                  </span>
-                );
-              })}
-            </div>
-          ):<span style={{color:"#7878a0",fontSize:12}}>Brak TP</span>}
-        </div>
-
-        {/* Partial closes */}
-        {pos.partial_closes?.length>0&&(
+      </td>
+    </tr>
+    {/* Panel szczegółów — zawsze widoczny */}
+    <tr>
+      <td colSpan={11} style={{padding:"0 10px 10px 10px",background:"#2e2e46"}}>
+        <div style={{
+          padding:"10px 14px",borderRadius:6,
+          border:`1px solid ${accent}22`,
+          display:"flex",gap:28,flexWrap:"wrap",
+        }}>
+          {/* TAKE PROFITS */}
           <div>
-            <div style={{color:"#9898b8",fontSize:10,letterSpacing:1,marginBottom:4}}>CZĘŚCIOWE ZAMKNIĘCIA</div>
-            {pos.partial_closes.map((pc,i)=>(
-              <div key={i} style={{color:GREEN,fontSize:11,fontFamily:"monospace"}}>
-                TP{pc.tp_level}: +${fmt(pc.pnl,2)} @ ${fmt(pc.price,4)}
+            <div style={{color:"#9898b8",fontSize:10,letterSpacing:1,marginBottom:6}}>
+              TAKE PROFITS
+              {tpsTotal>0&&<span style={{color:tpsHit>0?GREEN:"#7878a0",marginLeft:6}}>({tpsHit}/{tpsTotal})</span>}
+            </div>
+            {pos.take_profits?.length?(
+              <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+                {pos.take_profits.map(tp=>{
+                  const hit=pos.tps_hit?.includes(tp.level);
+                  return(
+                    <span key={tp.level} style={{
+                      background:hit?GREEN+"22":"#3a3a52",
+                      color:hit?GREEN:"#7878a0",
+                      border:`1px solid ${hit?GREEN+"55":BORDER}`,
+                      borderRadius:4,padding:"2px 8px",
+                      fontSize:11,fontFamily:"monospace",
+                    }}>
+                      {hit?"✓ ":"○ "}TP{tp.level}: ${fmt(tp.price,4)}
+                    </span>
+                  );
+                })}
               </div>
-            ))}
+            ):<span style={{color:"#7878a0",fontSize:12}}>Brak TP</span>}
           </div>
-        )}
 
-        {/* Szczegóły */}
-        <div>
-          <div style={{color:"#9898b8",fontSize:10,letterSpacing:1,marginBottom:4}}>SZCZEGÓŁY</div>
-          <div style={{color:"#a0a0c0",fontSize:11,fontFamily:"monospace"}}>Qty: {fmt(pos.quantity_remaining||pos.quantity,6)}</div>
-          <div style={{color:"#a0a0c0",fontSize:11,fontFamily:"monospace"}}>Ryzyko: {pos.risk_pct}%</div>
-          <div style={{color:"#a0a0c0",fontSize:11,fontFamily:"monospace"}}>Typ: {pos.entry_type}</div>
+          {/* STOP LOSS */}
+          <div>
+            <div style={{color:"#9898b8",fontSize:10,letterSpacing:1,marginBottom:6}}>STOP LOSS</div>
+            <div style={{color:RED+"cc",fontFamily:"monospace",fontSize:13,fontWeight:600}}>
+              {pos.stop_loss?`$${fmt(pos.stop_loss,4)}`:"—"}
+              {slMoved&&<span style={{color:YELLOW,fontSize:11,marginLeft:8}}>● BE</span>}
+            </div>
+            {pos.original_stop_loss&&slMoved&&(
+              <div style={{color:"#7878a0",fontSize:10,marginTop:2}}>
+                Orig: ${fmt(pos.original_stop_loss,4)}
+              </div>
+            )}
+          </div>
+
+          {/* PARTIAL CLOSES */}
+          {pos.partial_closes?.length>0&&(
+            <div>
+              <div style={{color:"#9898b8",fontSize:10,letterSpacing:1,marginBottom:6}}>CZĘŚCIOWE ZAMKNIĘCIA</div>
+              {pos.partial_closes.map((pc,i)=>(
+                <div key={i} style={{color:GREEN,fontSize:11,fontFamily:"monospace"}}>
+                  TP{pc.tp_level}: +${fmt(pc.pnl,2)} @ ${fmt(pc.price,4)}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* SZCZEGÓŁY */}
+          <div>
+            <div style={{color:"#9898b8",fontSize:10,letterSpacing:1,marginBottom:6}}>SZCZEGÓŁY</div>
+            <div style={{color:"#a0a0c0",fontSize:11,fontFamily:"monospace"}}>Qty: {fmt(pos.quantity_remaining||pos.quantity,6)}</div>
+            <div style={{color:"#a0a0c0",fontSize:11,fontFamily:"monospace"}}>Ryzyko: {pos.risk_pct}%</div>
+            <div style={{color:"#a0a0c0",fontSize:11,fontFamily:"monospace"}}>Typ: {pos.entry_type}</div>
+          </div>
+
+          {/* OTWARTO */}
+          <div>
+            <div style={{color:"#9898b8",fontSize:10,letterSpacing:1,marginBottom:6}}>OTWARTO</div>
+            <div style={{color:"#a0a0c0",fontSize:11,fontFamily:"monospace"}}>{fmtDt(pos.opened_at)}</div>
+          </div>
         </div>
-      </div>
-    </div>
-  );
+      </td>
+    </tr>
+  </>);
 };
 
 // ─── Positions Table ───────────────────────────────────────────────────────────
@@ -343,11 +363,23 @@ function PositionsTable({positions,channelNames,onRename,onClose}){
     <div style={{color:"#7878a0",padding:30,textAlign:"center",fontSize:13}}>Brak pozycji</div>
   );
   return(
-    <div>
-      {positions.map(pos=>(
-        <PositionRow key={pos.id} pos={pos} channelNames={channelNames}
-          onRename={onRename} onClose={onClose}/>
-      ))}
+    <div style={{overflowX:"auto"}}>
+      <table style={{width:"100%",borderCollapse:"collapse",fontFamily:"monospace",fontSize:12}}>
+        <thead>
+          <tr style={{borderBottom:`1px solid ${BORDER}`}}>
+            {["Symbol","Typ","Entry","Aktualnie","SL","TP","Alloc.","Unrealized P&L","Kanał","Otwarto",""].map(h=>(
+              <th key={h} style={{color:"#9898b8",fontSize:10,letterSpacing:1,padding:"8px 10px",
+                textAlign:"left",textTransform:"uppercase",whiteSpace:"nowrap"}}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {positions.map(pos=>(
+            <PositionRow key={pos.id} pos={pos} channelNames={channelNames}
+              onRename={onRename} onClose={onClose}/>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
