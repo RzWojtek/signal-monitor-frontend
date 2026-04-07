@@ -92,19 +92,33 @@ function normalizeId(id) {
   // Try all variants: as-is, without leading minus, without -100 prefix
   return String(id||"");
 }
+// Fallback nazwy kanałów — gdy Firebase nie ma wpisu
+const CHANNEL_FALLBACKS = {
+  "1700533698":   "Crypto Bulls",
+  "1982472141":   "Crypto BEAST",
+  "1552004524":   "Crypto MONK",
+  "1456872361":   "Predictum",
+  "1553551852":   "Binance 360",
+  "1756316676":   "Boom Boom",
+  "1743387695":   "Crypto Hustle",
+  "1652601224":   "Crypto World",
+};
+
 function lookupName(channelId, channelNames) {
   const id = String(channelId||"");
-  // Try exact match first
+  const bare = id.replace(/^-100/, "");
+
+  // 1. Sprawdź Firebase (wszystkie warianty)
   if (channelNames[id]) return channelNames[id];
-  // Try without leading -100
-  const without100 = id.replace(/^-100/, "");
-  if (channelNames[without100]) return channelNames[without100];
-  // Try with -100 prefix added
-  const with100 = "-100" + id;
-  if (channelNames[with100]) return channelNames[with100];
-  // Try "m" prefix variant (Firebase doc ID)
-  const mVariant = id.replace(/^-/, "m");
+  if (channelNames[bare]) return channelNames[bare];
+  if (channelNames["-100"+bare]) return channelNames["-100"+bare];
+  const mVariant = bare.replace(/^-/, "m");
   if (channelNames[mVariant]) return channelNames[mVariant];
+
+  // 2. Fallback z hardcoded
+  if (CHANNEL_FALLBACKS[bare]) return CHANNEL_FALLBACKS[bare];
+  if (CHANNEL_FALLBACKS[id]) return CHANNEL_FALLBACKS[id];
+
   return id;
 }
 
