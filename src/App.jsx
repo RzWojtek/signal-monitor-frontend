@@ -230,123 +230,124 @@ function PortfolioHeader({portfolio}){
 }
 
 // ─── Position Row — memoized to prevent collapse on re-render ─────────────────
-const PositionRow = ({ pos, channelNames, onRename, onClose, expanded, onToggle }) => {
+const PositionRow = ({ pos, channelNames, onRename, onClose }) => {
   const pnl=pos.unrealized_pnl??0,pnlPct=pos.unrealized_pnl_pct??0;
   const isPos=pnl>=0,isLong=["LONG","SPOT_BUY"].includes(pos.signal_type);
   const accent=isLong?GREEN:RED;
   const tpsHit=pos.tps_hit?.length??0,tpsTotal=pos.take_profits?.length??0;
   const slMoved=pos.sl_moved_to_be;
 
-  return(<>
-    <tr onClick={()=>onToggle(pos.id)}
-      style={{borderBottom:`1px solid ${BORDER}`,cursor:"pointer",transition:"background 0.15s"}}
-      onMouseEnter={e=>e.currentTarget.style.background="#ffffff08"}
-      onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-      <td style={{padding:"10px 10px",color:"#fff",fontWeight:700}}>
-        <span style={{borderLeft:`3px solid ${accent}`,paddingLeft:8}}>{pos.symbol}</span>
-      </td>
-      <td style={{padding:"10px 10px"}}><Pill label={pos.signal_type} color={accent}/></td>
-      <td style={{padding:"10px 10px",color:"#b8b8d0"}}>${fmt(pos.entry_price,4)}</td>
-      <td style={{padding:"10px 10px",color:isPos?GREEN:RED,fontWeight:600}}>${fmt(pos.current_price,4)}</td>
-      <td style={{padding:"10px 10px"}}>
-        <span style={{color:RED+"cc"}}>{pos.stop_loss?`$${fmt(pos.stop_loss,4)}`:"—"}</span>
-        {slMoved&&<span style={{color:YELLOW,fontSize:10,marginLeft:4}}>BE</span>}
-      </td>
-      <td style={{padding:"10px 10px"}}>
-        {tpsTotal>0
-          ?<span style={{color:tpsHit>0?GREEN:"#7878a0"}}>{tpsHit}/{tpsTotal}</span>
-          :<span style={{color:"#7878a0"}}>—</span>}
-      </td>
-      <td style={{padding:"10px 10px",color:"#a8a8c8"}}>
-        {fmtK(pos.allocated_usd)}
-        {pos.leverage>1&&<span style={{color:YELLOW,marginLeft:4}}>x{pos.leverage}</span>}
-      </td>
-      <td style={{padding:"10px 10px"}}>
-        <span style={{color:isPos?GREEN:RED,fontWeight:700}}>{isPos?"+":""}{fmtK(pnl)}</span>
-        <span style={{color:isPos?GREEN+"88":RED+"88",marginLeft:6,fontSize:11}}>({isPos?"+":""}{pct(pnlPct)})</span>
-      </td>
-      <td style={{padding:"10px 10px"}} onClick={e=>e.stopPropagation()}>
+  return(
+    <div style={{
+      background:CARD, border:`1px solid ${accent}30`,
+      borderLeft:`4px solid ${accent}`,
+      borderRadius:8, marginBottom:10, overflow:"hidden",
+    }}>
+      {/* Górny pasek — główne dane */}
+      <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",
+        flexWrap:"wrap",borderBottom:`1px solid ${BORDER}`}}>
+        <span style={{color:"#fff",fontWeight:800,fontSize:14,fontFamily:"monospace",minWidth:120}}>
+          {pos.symbol}
+        </span>
+        <Pill label={pos.signal_type} color={accent}/>
+        {pos.leverage>1&&<Pill label={`x${pos.leverage}`} color={YELLOW}/>}
+        <span style={{color:"#9898b8",fontSize:11}}>
+          Entry: <span style={{color:"#e8e8f0"}}>${fmt(pos.entry_price,4)}</span>
+        </span>
+        <span style={{color:"#9898b8",fontSize:11}}>
+          Teraz: <span style={{color:isPos?GREEN:RED,fontWeight:700}}>${fmt(pos.current_price,4)}</span>
+        </span>
+        <span style={{color:"#9898b8",fontSize:11}}>
+          P&L: <span style={{color:isPos?GREEN:RED,fontWeight:700}}>
+            {isPos?"+":""}{fmtK(pnl)}
+          </span>
+          <span style={{color:isPos?GREEN+"88":RED+"88",marginLeft:4,fontSize:11}}>
+            ({isPos?"+":""}{pct(pnlPct)})
+          </span>
+        </span>
+        <span style={{color:"#9898b8",fontSize:11}}>
+          Alloc: <span style={{color:"#e8e8f0"}}>{fmtK(pos.allocated_usd)}</span>
+        </span>
+        <span style={{marginLeft:"auto",fontSize:11,color:"#9898b8"}}>{ago(pos.opened_at)}</span>
         <ChannelTag channelId={pos.channel} channelNames={channelNames} onRename={onRename}/>
-      </td>
-      <td style={{padding:"10px 10px",color:"#9898b8",fontSize:11}}>{ago(pos.opened_at)}</td>
-      <td style={{padding:"10px 10px"}} onClick={e=>e.stopPropagation()}>
         <button onClick={()=>{
           if(window.confirm(`Zamknąć ${pos.symbol} @ $${pos.current_price}?`))
             onClose(pos.id, pos.current_price||pos.entry_price);
         }} style={{background:RED+"22",color:RED,border:`1px solid ${RED}44`,
           borderRadius:4,padding:"3px 10px",cursor:"pointer",fontSize:10,
           fontFamily:"monospace",whiteSpace:"nowrap"}}>✕ Zamknij</button>
-      </td>
-    </tr>
-    {expanded&&(
-      <tr>
-        <td colSpan={11} style={{padding:"0 10px 12px 10px",background:"#32324a"}}>
-          <div style={{padding:12,borderRadius:8,border:`1px solid ${accent}22`,display:"flex",gap:24,flexWrap:"wrap"}}>
-            <div>
-              <div style={{color:"#9898b8",fontSize:10,marginBottom:4}}>TAKE PROFITS</div>
-              {pos.take_profits?.length?pos.take_profits.map(tp=>(
-                <div key={tp.level} style={{color:pos.tps_hit?.includes(tp.level)?GREEN:"#7878a0",fontSize:12}}>
-                  {pos.tps_hit?.includes(tp.level)?"✓ ":"○ "}TP{tp.level}: ${fmt(tp.price,4)}
-                </div>
-              )):<span style={{color:"#7878a0"}}>Brak TP</span>}
-            </div>
-            <div>
-              <div style={{color:"#9898b8",fontSize:10,marginBottom:4}}>PARTIAL CLOSES</div>
-              {pos.partial_closes?.length?pos.partial_closes.map((pc,i)=>(
-                <div key={i} style={{color:GREEN,fontSize:11}}>TP{pc.tp_level}: +${fmt(pc.pnl,2)} @ ${fmt(pc.price,4)}</div>
-              )):<span style={{color:"#7878a0",fontSize:12}}>Brak</span>}
-            </div>
-            <div>
-              <div style={{color:"#9898b8",fontSize:10,marginBottom:4}}>SZCZEGÓŁY</div>
-              <div style={{color:"#a0a0c0",fontSize:12}}>Qty: {pos.quantity_remaining||pos.quantity}</div>
-              <div style={{color:"#a0a0c0",fontSize:12}}>Ryzyko: {pos.risk_pct}%</div>
-              <div style={{color:slMoved?YELLOW:"#a0a0c0",fontSize:12}}>
-                SL: {pos.stop_loss?`$${fmt(pos.stop_loss,4)}`:"—"} {slMoved?"(BE)":""}
-              </div>
-              <div style={{color:"#a0a0c0",fontSize:12}}>Entry type: {pos.entry_type}</div>
-            </div>
-            <div>
-              <div style={{color:"#9898b8",fontSize:10,marginBottom:4}}>OTWARTO</div>
-              <div style={{color:"#a0a0c0",fontSize:12}}>{fmtDt(pos.opened_at)}</div>
-            </div>
+      </div>
+
+      {/* Dolny panel — szczegóły zawsze widoczne */}
+      <div style={{display:"flex",gap:24,padding:"10px 14px",flexWrap:"wrap",background:"#32324a"}}>
+        {/* SL */}
+        <div>
+          <div style={{color:"#9898b8",fontSize:10,letterSpacing:1,marginBottom:4}}>STOP LOSS</div>
+          <div style={{color:RED+"cc",fontFamily:"monospace",fontSize:13}}>
+            {pos.stop_loss?`$${fmt(pos.stop_loss,4)}`:"—"}
+            {slMoved&&<span style={{color:YELLOW,fontSize:10,marginLeft:6}}>● BE</span>}
           </div>
-        </td>
-      </tr>
-    )}
-  </>);
+        </div>
+
+        {/* TPs */}
+        <div>
+          <div style={{color:"#9898b8",fontSize:10,letterSpacing:1,marginBottom:4}}>
+            TAKE PROFITS {tpsTotal>0&&<span style={{color:tpsHit>0?GREEN:"#7878a0"}}>({tpsHit}/{tpsTotal} trafione)</span>}
+          </div>
+          {pos.take_profits?.length?(
+            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+              {pos.take_profits.map(tp=>{
+                const hit=pos.tps_hit?.includes(tp.level);
+                return(
+                  <span key={tp.level} style={{
+                    background:hit?GREEN+"22":"#2a2a42",
+                    color:hit?GREEN:"#9898b8",
+                    border:`1px solid ${hit?GREEN+"44":BORDER}`,
+                    borderRadius:4,padding:"2px 8px",fontSize:11,fontFamily:"monospace",
+                  }}>
+                    {hit?"✓ ":""}TP{tp.level}: ${fmt(tp.price,4)}
+                  </span>
+                );
+              })}
+            </div>
+          ):<span style={{color:"#7878a0",fontSize:12}}>Brak TP</span>}
+        </div>
+
+        {/* Partial closes */}
+        {pos.partial_closes?.length>0&&(
+          <div>
+            <div style={{color:"#9898b8",fontSize:10,letterSpacing:1,marginBottom:4}}>CZĘŚCIOWE ZAMKNIĘCIA</div>
+            {pos.partial_closes.map((pc,i)=>(
+              <div key={i} style={{color:GREEN,fontSize:11,fontFamily:"monospace"}}>
+                TP{pc.tp_level}: +${fmt(pc.pnl,2)} @ ${fmt(pc.price,4)}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Szczegóły */}
+        <div>
+          <div style={{color:"#9898b8",fontSize:10,letterSpacing:1,marginBottom:4}}>SZCZEGÓŁY</div>
+          <div style={{color:"#a0a0c0",fontSize:11,fontFamily:"monospace"}}>Qty: {fmt(pos.quantity_remaining||pos.quantity,6)}</div>
+          <div style={{color:"#a0a0c0",fontSize:11,fontFamily:"monospace"}}>Ryzyko: {pos.risk_pct}%</div>
+          <div style={{color:"#a0a0c0",fontSize:11,fontFamily:"monospace"}}>Typ: {pos.entry_type}</div>
+        </div>
+      </div>
+    </div>
+  );
 };
 
 // ─── Positions Table ───────────────────────────────────────────────────────────
 function PositionsTable({positions,channelNames,onRename,onClose}){
-  // expandedIds lives HERE — survives Firebase re-renders
-  const [expandedIds, setExpandedIds] = useState({});
-  const toggle = useCallback((id) => {
-    setExpandedIds(prev => ({...prev, [id]: !prev[id]}));
-  }, []);
-
   if(!positions.length) return(
     <div style={{color:"#7878a0",padding:30,textAlign:"center",fontSize:13}}>Brak pozycji</div>
   );
   return(
-    <div style={{overflowX:"auto"}}>
-      <table style={{width:"100%",borderCollapse:"collapse",fontFamily:"monospace",fontSize:12}}>
-        <thead>
-          <tr style={{borderBottom:`1px solid ${BORDER}`}}>
-            {["Symbol","Typ","Entry","Aktualnie","SL","TP","Alloc.","Unrealized P&L","Kanał","Otwarto",""].map(h=>(
-              <th key={h} style={{color:"#9898b8",fontSize:10,letterSpacing:1,padding:"8px 10px",
-                textAlign:"left",textTransform:"uppercase",whiteSpace:"nowrap"}}>{h}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {positions.map(pos=>(
-            <PositionRow key={pos.id} pos={pos} channelNames={channelNames}
-              onRename={onRename} onClose={onClose}
-              expanded={!!expandedIds[pos.id]}
-              onToggle={toggle}/>
-          ))}
-        </tbody>
-      </table>
+    <div>
+      {positions.map(pos=>(
+        <PositionRow key={pos.id} pos={pos} channelNames={channelNames}
+          onRename={onRename} onClose={onClose}/>
+      ))}
     </div>
   );
 }
