@@ -1859,6 +1859,266 @@ function IntelligenceDashboard({closedPos, channelNames, marketRegime}) {
   );
 }
 
+
+// ─── 👥 SHADOW PORTFOLIO DASHBOARD ────────────────────────────────────────────
+function ShadowPortfolioDashboard({portfolios, positions, realPortfolio}) {
+  const STRATEGY_META = {
+    conservative: {name:"🛡️ Konserwatywna", color:"#82b1ff", desc:"1% ryzyko · max 20x · kanały >50% WR"},
+    current:      {name:"⚖️ Obecna (3%)",    color:"#00e5ff", desc:"3% ryzyko · wszystkie kanały"},
+    aggressive:   {name:"🚀 Agresywna",      color:"#ff9f43", desc:"5% ryzyko · wszystkie kanały"},
+  };
+
+  const [activeStrategy, setActiveStrategy] = useState(null);
+
+  if (!portfolios.length) return (
+    <div style={{color:"#9898b8",padding:40,textAlign:"center",fontSize:13,fontFamily:"monospace"}}>
+      ⏳ Oczekiwanie na dane...<br/>
+      <span style={{fontSize:10,color:"#5c6494"}}>shadow_portfolio.py musi być uruchomiony na VPS</span>
+    </div>
+  );
+
+  const fmt = (n,d=2) => n!=null ? (Number(n)>=0?"+":"")+Number(n).toFixed(d) : "—";
+  const fmtK = n => n!=null ? `$${Number(n).toFixed(2)}` : "—";
+  const wr = p => {
+    const t = (p.wins||0)+(p.losses||0);
+    return t>0 ? Math.round((p.wins||0)/t*100) : 0;
+  };
+
+  // Połącz z metadanymi
+  const enriched = portfolios.map(p => ({
+    ...p,
+    meta: STRATEGY_META[p.strategy_id] || {name:p.strategy_id,color:"#9898b8",desc:""},
+  })).sort((a,b) => (b.total_pnl||0) - (a.total_pnl||0));
+
+  // Real portfolio jako obiekt do porównania
+  const real = realPortfolio || {};
+  const realPnl = real.total_pnl || 0;
+  const realCap = real.current_capital || 500;
+
+  const selPortfolio = activeStrategy
+    ? enriched.find(p=>p.strategy_id===activeStrategy)
+    : null;
+  const selPositions = activeStrategy
+    ? positions.filter(p=>p.strategy_id===activeStrategy)
+    : [];
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:16}}>
+
+      {/* Header — porównanie 3 shadow + real */}
+      <div style={{background:"#1c2030",border:"1px solid #2e3350",borderRadius:12,padding:"18px 22px"}}>
+        <div style={{color:"#9898b8",fontSize:10,letterSpacing:"0.12em",
+          textTransform:"uppercase",marginBottom:16,fontWeight:600}}>
+          Porównanie strategii — kapitał startowy $500
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12}}>
+
+          {/* Real portfolio */}
+          <div style={{background:"#242840",borderRadius:10,padding:"14px 16px",
+            border:"2px solid rgba(0,229,255,.3)"}}>
+            <div style={{fontSize:11,color:"#00e5ff",fontWeight:700,marginBottom:8,fontFamily:"monospace"}}>
+              📊 Twój portfel
+            </div>
+            <div style={{color:"#9898b8",fontSize:10,marginBottom:10}}>3% · aktywny</div>
+            <div style={{color:realPnl>=0?"#00e676":"#ff5252",
+              fontFamily:"monospace",fontSize:20,fontWeight:800,marginBottom:4}}>
+              {fmt(realPnl)}$
+            </div>
+            <div style={{color:"#9898b8",fontSize:11,fontFamily:"monospace"}}>
+              Kapitał: ${realCap.toFixed(2)}
+            </div>
+            <div style={{display:"flex",gap:8,marginTop:8,fontSize:10}}>
+              <span style={{color:"#00e676"}}>{real.wins||0}W</span>
+              <span style={{color:"#ff5252"}}>{real.losses||0}L</span>
+            </div>
+          </div>
+
+          {/* Shadow portfolios */}
+          {enriched.map(p => {
+            const pnl = p.total_pnl || 0;
+            const isSelected = activeStrategy === p.strategy_id;
+            const diff = pnl - realPnl;
+            return (
+              <div key={p.strategy_id}
+                onClick={()=>setActiveStrategy(isSelected ? null : p.strategy_id)}
+                style={{
+                  background: isSelected ? p.meta.color+"15" : "#1a1d2e",
+                  borderRadius:10,padding:"14px 16px",cursor:"pointer",
+                  border: isSelected ? `2px solid ${p.meta.color}` : "1px solid #2e3350",
+                  transition:"all .2s",
+                }}>
+                <div style={{fontSize:11,color:p.meta.color,fontWeight:700,
+                  marginBottom:4,fontFamily:"monospace"}}>
+                  {p.meta.name}
+                </div>
+                <div style={{color:"#5c6494",fontSize:10,marginBottom:10}}>{p.meta.desc}</div>
+                <div style={{color:pnl>=0?"#00e676":"#ff5252",
+                  fontFamily:"monospace",fontSize:20,fontWeight:800,marginBottom:4}}>
+                  {fmt(pnl)}$
+                </div>
+                <div style={{fontSize:11,fontFamily:"monospace",
+                  color:diff>=0?"#00e676":"#ff5252",marginBottom:6}}>
+                  vs real: {diff>=0?"+":""}{diff.toFixed(2)}$
+                </div>
+                <div style={{display:"flex",gap:8,fontSize:10}}>
+                  <span style={{color:"#00e676"}}>{p.wins||0}W</span>
+                  <span style={{color:"#ff5252"}}>{p.losses||0}L</span>
+                  <span style={{color:"#9898b8"}}>{wr(p)}% WR</span>
+                </div>
+                <div style={{color:"#5c6494",fontSize:9,marginTop:6}}>
+                  {isSelected?"▲ kliknij żeby ukryć":"▼ kliknij po szczegóły"}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Wykres porównawczy P&L */}
+      <div style={{background:"#1c2030",border:"1px solid #2e3350",borderRadius:10,padding:"16px 20px"}}>
+        <div style={{color:"#9898b8",fontSize:10,letterSpacing:"0.12em",
+          textTransform:"uppercase",marginBottom:14,fontWeight:600}}>
+          P&L porównanie
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          {/* Real */}
+          {[
+            {name:"📊 Twój portfel", pnl:realPnl, color:"#00e5ff", trades:(real.wins||0)+(real.losses||0)},
+            ...enriched.map(p=>({name:p.meta.name, pnl:p.total_pnl||0, color:p.meta.color, trades:(p.wins||0)+(p.losses||0)}))
+          ].map((s,i) => {
+            const allPnls = [realPnl,...enriched.map(p=>p.total_pnl||0)];
+            const maxAbs  = Math.max(...allPnls.map(Math.abs), 1);
+            const barW    = Math.abs(s.pnl) / maxAbs * 45;
+            const isPos   = s.pnl >= 0;
+            return (
+              <div key={i} style={{display:"flex",alignItems:"center",gap:10}}>
+                <div style={{width:150,fontSize:11,color:"#b8b8d0",fontFamily:"monospace",flexShrink:0}}>
+                  {s.name}
+                </div>
+                <div style={{flex:1,display:"flex",alignItems:"center",gap:4}}>
+                  {/* Lewa strona (straty) */}
+                  <div style={{flex:1,display:"flex",justifyContent:"flex-end"}}>
+                    {!isPos && <div style={{
+                      width:`${barW*2}%`,height:18,background:s.color+"80",
+                      borderRadius:"4px 0 0 4px",
+                    }}/>}
+                  </div>
+                  {/* Środek */}
+                  <div style={{width:1,height:18,background:"#3d4468",flexShrink:0}}/>
+                  {/* Prawa strona (zyski) */}
+                  <div style={{flex:1}}>
+                    {isPos && <div style={{
+                      width:`${barW*2}%`,height:18,background:s.color,
+                      borderRadius:"0 4px 4px 0",
+                    }}/>}
+                  </div>
+                </div>
+                <div style={{width:80,fontSize:11,fontFamily:"monospace",
+                  color:isPos?"#00e676":"#ff5252",textAlign:"right",flexShrink:0,fontWeight:700}}>
+                  {fmt(s.pnl)}$
+                </div>
+                <div style={{width:50,fontSize:10,color:"#5c6494",fontFamily:"monospace",flexShrink:0}}>
+                  {s.trades}tr
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Szczegóły wybranej strategii */}
+      {selPortfolio && (
+        <div style={{background:"#1c2030",border:`1px solid ${selPortfolio.meta.color}44`,
+          borderRadius:10,padding:"16px 20px"}}>
+          <div style={{color:selPortfolio.meta.color,fontSize:12,fontWeight:700,
+            fontFamily:"monospace",marginBottom:14,letterSpacing:"0.06em"}}>
+            {selPortfolio.meta.name} — szczegóły
+          </div>
+
+          {/* Metryki */}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))",
+            gap:12,marginBottom:16}}>
+            {[
+              {l:"Kapitał",v:fmtK(selPortfolio.current_capital),c:"#e8eaf6"},
+              {l:"P&L łącznie",v:fmt(selPortfolio.total_pnl)+"$",c:(selPortfolio.total_pnl||0)>=0?"#00e676":"#ff5252"},
+              {l:"Win Rate",v:`${wr(selPortfolio)}%`,c:wr(selPortfolio)>=55?"#00e676":wr(selPortfolio)>=40?"#ffd740":"#ff5252"},
+              {l:"Trades",v:selPortfolio.total_trades||0,c:"#9898b8"},
+              {l:"Wins/Losses",v:`${selPortfolio.wins||0}/${selPortfolio.losses||0}`,c:"#9898b8"},
+              {l:"vs Twój portfel",v:fmt((selPortfolio.total_pnl||0)-realPnl)+"$",
+                c:((selPortfolio.total_pnl||0)-realPnl)>=0?"#00e676":"#ff5252"},
+            ].map(s=>(
+              <div key={s.l} style={{background:"#0d0f17",borderRadius:8,padding:"10px 12px"}}>
+                <div style={{color:"#5c6494",fontSize:10,marginBottom:4}}>{s.l}</div>
+                <div style={{color:s.c,fontFamily:"monospace",fontSize:15,fontWeight:700}}>{s.v}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Otwarte pozycje shadow */}
+          {selPositions.filter(p=>p.status==="OPEN").length > 0 && (
+            <>
+              <div style={{color:"#9898b8",fontSize:10,letterSpacing:"0.1em",
+                textTransform:"uppercase",marginBottom:8,fontWeight:600}}>
+                Otwarte pozycje ({selPositions.filter(p=>p.status==="OPEN").length})
+              </div>
+              <div style={{overflowX:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",fontFamily:"monospace",fontSize:11}}>
+                  <thead>
+                    <tr style={{borderBottom:"1px solid #2e3350"}}>
+                      {["Symbol","Typ","Entry","Aktualnie","P&L","Dźwignia","Kanał"].map(h=>(
+                        <th key={h} style={{color:"#5c6494",fontSize:9,padding:"6px 8px",
+                          textAlign:"left",textTransform:"uppercase"}}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selPositions.filter(p=>p.status==="OPEN").map(p=>{
+                      const pnl = p.unrealized_pnl || 0;
+                      const isL = ["LONG","SPOT_BUY"].includes(p.signal_type);
+                      return (
+                        <tr key={p.id} style={{borderBottom:"1px solid rgba(46,51,80,.3)"}}>
+                          <td style={{padding:"6px 8px",color:"#e8eaf6",fontWeight:700}}>{p.symbol}</td>
+                          <td style={{padding:"6px 8px"}}>
+                            <span style={{background:isL?"rgba(0,230,118,.15)":"rgba(255,82,82,.15)",
+                              color:isL?"#00e676":"#ff5252",padding:"1px 6px",borderRadius:3,fontSize:9}}>
+                              {p.signal_type}
+                            </span>
+                          </td>
+                          <td style={{padding:"6px 8px",color:"#9898b8"}}>${p.entry_price?.toPrecision(5)}</td>
+                          <td style={{padding:"6px 8px",color:pnl>=0?"#00e676":"#ff5252"}}>
+                            ${p.current_price?.toPrecision(5)||"—"}
+                          </td>
+                          <td style={{padding:"6px 8px",fontWeight:700,
+                            color:pnl>=0?"#00e676":"#ff5252"}}>
+                            {pnl>=0?"+":""}{pnl.toFixed(2)}$
+                          </td>
+                          <td style={{padding:"6px 8px",color:"#ffd740"}}>x{p.leverage}</td>
+                          <td style={{padding:"6px 8px",color:"#9898b8",fontSize:10}}>
+                            {p.channel_name||p.channel||"—"}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Legenda */}
+      <div style={{background:"#141720",border:"1px solid #2e3350",borderRadius:8,
+        padding:"12px 16px",fontSize:11,color:"#5c6494"}}>
+        💡 Kliknij kartę strategii żeby zobaczyć szczegóły i otwarte pozycje.
+        Shadow portfolio śledzi te same sygnały co Twój bot ale z różnymi parametrami —
+        bez realnych pieniędzy. Wyniki po historycznych danych są przybliżone.
+      </div>
+
+    </div>
+  );
+}
+
 // ─── Tab Bar ───────────────────────────────────────────────────────────────────
 const TABS=[
   {id:"portfolio",label:"📊 Portfolio"},
@@ -1870,6 +2130,7 @@ const TABS=[
   {id:"debug",label:"🔧 Debug"},
   {id:"intelligence",label:"🧠 Intelligence"},
   {id:"sentiment",label:"🎵 Sentiment"},
+  {id:"shadow",label:"👥 Shadow"},
 ];
 
 function TabBar({active,onChange}){
@@ -2002,6 +2263,19 @@ export default function App(){
   },[]);
 
   const [marketRegime, setMarketRegime] = useState(null);
+  const [shadowPortfolios, setShadowPortfolios] = useState([]);
+  const [shadowPositions, setShadowPositions] = useState([]);
+  useEffect(()=>{
+    return onSnapshot(collection(db,"shadow_portfolios"), snap=>{
+      setShadowPortfolios(snap.docs.map(d=>({id:d.id,...d.data()})).filter(d=>d.strategy_id));
+    });
+  },[]);
+  useEffect(()=>{
+    const q=query(collection(db,"shadow_positions"),orderBy("opened_at","desc"),limit(200));
+    return onSnapshot(q, snap=>{
+      setShadowPositions(snap.docs.map(d=>({id:d.id,...d.data()})));
+    });
+  },[]);
   useEffect(()=>{
     return onSnapshot(doc(db,"market_regime","current"), snap=>{
       if(snap.exists()) setMarketRegime(snap.data());
@@ -2087,6 +2361,7 @@ export default function App(){
         {tab==="intelligence"&&<IntelligenceDashboard closedPos={closedPos} channelNames={channelNames} marketRegime={marketRegime}/>}
 
         {tab==="sentiment"&&<SentimentHarmonia signals={signals} openPos={openPos} closedPos={closedPos}/>}
+        {tab==="shadow"&&<ShadowPortfolioDashboard portfolios={shadowPortfolios} positions={shadowPositions} realPortfolio={portfolio}/>}
       </div>
     </div>
   );
