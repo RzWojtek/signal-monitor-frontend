@@ -1320,6 +1320,347 @@ function ForensicLossAnalysis({positions, channelNames}) {
   );
 }
 
+
+// ─── 🎵 SENTIMENT HARMONIA ────────────────────────────────────────────────────
+function SentimentHarmonia({signals, openPos, closedPos}) {
+  const [now, setNow] = useState(Date.now());
+
+  // Odświeżaj co minutę
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 60000);
+    return () => clearInterval(t);
+  }, []);
+
+  if (signals.length < 10) return (
+    <div style={{color:"#9898b8",padding:40,textAlign:"center",fontSize:13,fontFamily:"monospace"}}>
+      Potrzeba min. 10 sygnałów do analizy rytmu. Masz: {signals.length}
+    </div>
+  );
+
+  // ── Pomocnicze ────────────────────────────────────────────────────────────────
+  const tsOf = (s) => {
+    if (!s.timestamp) return 0;
+    try { return s.timestamp.toDate ? s.timestamp.toDate().getTime() : new Date(s.timestamp).getTime(); }
+    catch(e) { return 0; }
+  };
+
+  const sorted = [...signals].sort((a,b) => tsOf(a)-tsOf(b));
+
+  // ── Sygnały w ostatnich 24h ────────────────────────────────────────────────
+  const last24h = sorted.filter(s => now - tsOf(s) < 86400000);
+  const last1h  = sorted.filter(s => now - tsOf(s) < 3600000);
+  const last30m = sorted.filter(s => now - tsOf(s) < 1800000);
+
+  // ── Normalna częstotliwość (historyczna mediana na godzinę) ───────────────
+  const hourBuckets = {};
+  sorted.forEach(s => {
+    const h = Math.floor(tsOf(s) / 3600000);
+    if (!hourBuckets[h]) hourBuckets[h] = 0;
+    hourBuckets[h]++;
+  });
+  const bucketVals = Object.values(hourBuckets).sort((a,b)=>a-b);
+  const medianPerHour = bucketVals.length
+    ? bucketVals[Math.floor(bucketVals.length/2)]
+    : 2;
+  const avgPerHour = bucketVals.length
+    ? (bucketVals.reduce((s,v)=>s+v,0)/bucketVals.length).toFixed(1)
+    : 2;
+
+  // ── Temperatura rynku ────────────────────────────────────────────────────────
+  const ratio = medianPerHour > 0 ? last1h.length / medianPerHour : 1;
+  let temp, tempColor, tempLabel, tempAdvice, tempIcon;
+  if (ratio >= 3) {
+    temp="GORĄCZKA"; tempColor="#ff5252"; tempIcon="🔥🔥🔥";
+    tempLabel=`${last1h.length} sygnałów/h vs norma ${medianPerHour}/h`;
+    tempAdvice="UWAGA: Rynek w gorączce! Historycznie takie momenty kończą się odwróceniem. Bot zmniejsza pozycje o 50%.";
+  } else if (ratio >= 2) {
+    temp="PODGORĄCZKOWY"; tempColor="#ff9f43"; tempIcon="🔥🔥";
+    tempLabel=`${last1h.length} sygnałów/h vs norma ${medianPerHour}/h`;
+    tempAdvice="Zwiększona aktywność. Zachowaj ostrożność — wchódź tylko w najsilniejsze sygnały.";
+  } else if (ratio >= 1.3) {
+    temp="AKTYWNY"; tempColor="#ffd740"; tempIcon="🔥";
+    tempLabel=`${last1h.length} sygnałów/h vs norma ${medianPerHour}/h`;
+    tempAdvice="Rynek powyżej normy. Normalna aktywność tradingowa.";
+  } else if (ratio < 0.3 && last1h.length === 0) {
+    temp="MARTWY"; tempColor="#9898b8"; tempIcon="💤";
+    tempLabel="0 sygnałów w ostatniej godzinie";
+    tempAdvice="Rynek śpi. Brak nowych sygnałów — czekaj na przebudzenie.";
+  } else {
+    temp="NORMALNY"; tempColor="#00e676"; tempIcon="✓";
+    tempLabel=`${last1h.length} sygnałów/h vs norma ${medianPerHour}/h`;
+    tempAdvice="Rytm rynku w normie. Bot działa z pełnym ryzykiem.";
+  }
+
+  // ── Histogram 24h (co 2 godziny) ─────────────────────────────────────────────
+  const histogram = [];
+  for (let i = 23; i >= 0; i--) {
+    const start = now - (i+1)*3600000;
+    const end   = now - i*3600000;
+    const cnt   = sorted.filter(s => tsOf(s)>=start && tsOf(s)<end).length;
+    const t = new Date(end);
+    histogram.push({
+      label: `${String(t.getUTCHours()).padStart(2,"0")}:00`,
+      count: cnt,
+      isCurrent: i === 0,
+    });
+  }
+  const maxCount = Math.max(...histogram.map(h=>h.count), 1);
+
+  // ── Aktywność per kanał (ostatnie 24h) ───────────────────────────────────────
+  const channelActivity = {};
+  last24h.forEach(s => {
+    const ch = s.channel_name || s.channel || "?";
+    if (!channelActivity[ch]) channelActivity[ch] = {signals:0, last:0};
+    channelActivity[ch].signals++;
+    const t = tsOf(s);
+    if (t > channelActivity[ch].last) channelActivity[ch].last = t;
+  });
+  const chAct = Object.entries(channelActivity)
+    .map(([name,v])=>({name, ...v}))
+    .sort((a,b)=>b.signals-a.signals);
+
+  // ── Wzorzec dzienny (ostatnie 7 dni, po godzinie UTC) ────────────────────────
+  const dayPattern = Array(24).fill(0);
+  const last7d = sorted.filter(s => now - tsOf(s) < 7*86400000);
+  last7d.forEach(s => {
+    const h = new Date(tsOf(s)).getUTCHours();
+    dayPattern[h]++;
+  });
+  const maxDay = Math.max(...dayPattern, 1);
+
+  // ── Trend (rośnie/spada/stabilny) ────────────────────────────────────────────
+  const first12h = sorted.filter(s => {
+    const age = now - tsOf(s);
+    return age >= 12*3600000 && age < 24*3600000;
+  }).length;
+  const second12h = sorted.filter(s => now - tsOf(s) < 12*3600000).length;
+  const trend = second12h > first12h * 1.3 ? "rosnący 📈"
+    : second12h < first12h * 0.7 ? "malejący 📉"
+    : "stabilny ➡️";
+  const trendColor = second12h > first12h * 1.3 ? "#ffd740"
+    : second12h < first12h * 0.7 ? "#00e676"
+    : "#9898b8";
+
+  // ── Sygnały LONG vs SHORT ostatnie 24h ───────────────────────────────────────
+  const longs24  = last24h.filter(s=>s.signal_type==="LONG").length;
+  const shorts24 = last24h.filter(s=>s.signal_type==="SHORT").length;
+  const bias = longs24 > shorts24 * 1.5 ? "BYCZYNA 🐂"
+    : shorts24 > longs24 * 1.5 ? "NIEDŹWIEDZIA 🐻"
+    : "NEUTRALNA ⚖️";
+  const biasColor = longs24 > shorts24 * 1.5 ? "#00e676"
+    : shorts24 > longs24 * 1.5 ? "#ff5252"
+    : "#9898b8";
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:16}}>
+
+      {/* Header — temperatura */}
+      <div style={{background:"#1c2030",border:`2px solid ${tempColor}44`,borderRadius:12,padding:"20px 24px"}}>
+        <div style={{display:"flex",alignItems:"center",gap:16,flexWrap:"wrap"}}>
+          <div>
+            <div style={{fontSize:32}}>{tempIcon}</div>
+          </div>
+          <div style={{flex:1}}>
+            <div style={{color:tempColor,fontWeight:800,fontSize:18,fontFamily:"monospace",letterSpacing:"0.08em"}}>
+              RYNEK: {temp}
+            </div>
+            <div style={{color:"#9898b8",fontSize:12,marginTop:4}}>{tempLabel}</div>
+            <div style={{color:"#b8b8d0",fontSize:12,marginTop:6,padding:"8px 12px",
+              background:tempColor+"15",borderRadius:6,borderLeft:`3px solid ${tempColor}`}}>
+              {tempAdvice}
+            </div>
+          </div>
+          <div style={{display:"flex",gap:20,flexWrap:"wrap"}}>
+            {[
+              {l:"Ostatnia 1h",v:last1h.length,c:last1h.length>medianPerHour*2?"#ff5252":"#00e676"},
+              {l:"Ostatnie 30m",v:last30m.length,c:"#9898b8"},
+              {l:"Ostatnie 24h",v:last24h.length,c:"#82b1ff"},
+              {l:"Norma/h",v:medianPerHour,c:"#9898b8"},
+            ].map(s=>(
+              <div key={s.l} style={{textAlign:"center"}}>
+                <div style={{color:s.c,fontFamily:"monospace",fontSize:22,fontWeight:700}}>{s.v}</div>
+                <div style={{color:"#5c6494",fontSize:10}}>{s.l}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Histogram 24h + wzorzec dzienny */}
+      <div style={{display:"grid",gridTemplateColumns:"2fr 1fr",gap:14}}>
+
+        {/* Histogram 24h */}
+        <div style={{background:"#1c2030",border:"1px solid #2e3350",borderRadius:10,padding:"16px 20px"}}>
+          <div style={{color:"#9898b8",fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",
+            marginBottom:4,fontWeight:600}}>Aktywność — ostatnie 24h (UTC)</div>
+          <div style={{color:"#5c6494",fontSize:10,marginBottom:12}}>
+            Trend: <span style={{color:trendColor}}>{trend}</span>
+            {" · "}Śr. {avgPerHour} sygnałów/h
+          </div>
+          <div style={{display:"flex",alignItems:"flex-end",gap:2,height:100}}>
+            {histogram.map((h,i) => {
+              const pct = h.count/maxCount*100;
+              const isHigh = h.count > medianPerHour * 2;
+              const barColor = h.isCurrent ? "#00e5ff" : isHigh ? "#ff5252" : "#3d4468";
+              return (
+                <div key={i} style={{flex:1,display:"flex",flexDirection:"column",
+                  alignItems:"center",gap:2,height:"100%",justifyContent:"flex-end"}}>
+                  <div title={`${h.label}: ${h.count} sygnałów`} style={{
+                    width:"100%",background:barColor,borderRadius:"2px 2px 0 0",
+                    height:`${Math.max(pct,2)}%`,minHeight:h.count>0?3:0,
+                    opacity:h.isCurrent?1:0.8,transition:"height .3s",
+                    border:h.isCurrent?`1px solid #00e5ff`:"none",
+                  }}/>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{display:"flex",justifyContent:"space-between",marginTop:6,
+            fontSize:9,color:"#5c6494",fontFamily:"monospace"}}>
+            {["24h temu","18h temu","12h temu","6h temu","teraz"].map(l=>(
+              <span key={l}>{l}</span>
+            ))}
+          </div>
+          <div style={{display:"flex",gap:12,marginTop:8,fontSize:10}}>
+            <span style={{display:"flex",alignItems:"center",gap:4}}>
+              <span style={{width:8,height:8,background:"#00e5ff",borderRadius:2,display:"inline-block"}}/>
+              <span style={{color:"#9898b8"}}>Bieżąca godzina</span>
+            </span>
+            <span style={{display:"flex",alignItems:"center",gap:4}}>
+              <span style={{width:8,height:8,background:"#ff5252",borderRadius:2,display:"inline-block"}}/>
+              <span style={{color:"#9898b8"}}>Powyżej 2x normy</span>
+            </span>
+          </div>
+        </div>
+
+        {/* Wzorzec tygodniowy */}
+        <div style={{background:"#1c2030",border:"1px solid #2e3350",borderRadius:10,padding:"16px 20px"}}>
+          <div style={{color:"#9898b8",fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",
+            marginBottom:4,fontWeight:600}}>Wzorzec 7-dniowy</div>
+          <div style={{color:"#5c6494",fontSize:10,marginBottom:12}}>Sygnały wg godziny UTC</div>
+          <div style={{display:"flex",alignItems:"flex-end",gap:1,height:80}}>
+            {dayPattern.map((cnt,h) => {
+              const pct = cnt/maxDay*100;
+              const isActive = new Date().getUTCHours() === h;
+              return (
+                <div key={h} style={{flex:1,display:"flex",flexDirection:"column",
+                  alignItems:"center",justifyContent:"flex-end",height:"100%"}}>
+                  <div title={`${String(h).padStart(2,"0")}:00 UTC — ${cnt} sygnałów`} style={{
+                    width:"100%",
+                    background:isActive?"#00e5ff":cnt>maxDay*0.7?"#ffd740":cnt>maxDay*0.4?"#82b1ff":"#2e3350",
+                    borderRadius:"2px 2px 0 0",
+                    height:`${Math.max(pct,2)}%`,minHeight:cnt>0?2:0,
+                  }}/>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{display:"flex",justifyContent:"space-between",marginTop:4,
+            fontSize:9,color:"#5c6494",fontFamily:"monospace"}}>
+            <span>00</span><span>06</span><span>12</span><span>18</span><span>23</span>
+          </div>
+          <div style={{marginTop:10,fontSize:11,color:"#9898b8"}}>
+            Szczyt aktywności:{" "}
+            <span style={{color:"#ffd740",fontFamily:"monospace"}}>
+              {String(dayPattern.indexOf(Math.max(...dayPattern))).padStart(2,"0")}:00 UTC
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Sentiment row */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14}}>
+
+        {/* LONG/SHORT bias */}
+        <div style={{background:"#1c2030",border:"1px solid #2e3350",borderRadius:10,padding:"16px 20px"}}>
+          <div style={{color:"#9898b8",fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",
+            marginBottom:14,fontWeight:600}}>Nastrój rynku (24h)</div>
+          <div style={{color:biasColor,fontFamily:"monospace",fontSize:18,fontWeight:700,marginBottom:10}}>
+            {bias}
+          </div>
+          <div style={{display:"flex",height:8,borderRadius:4,overflow:"hidden",marginBottom:8}}>
+            <div style={{flex:longs24||1,background:"#00e676",transition:"flex .5s"}}/>
+            <div style={{flex:shorts24||1,background:"#ff5252",transition:"flex .5s"}}/>
+          </div>
+          <div style={{display:"flex",justifyContent:"space-between",fontSize:11,fontFamily:"monospace"}}>
+            <span style={{color:"#00e676"}}>🐂 LONG: {longs24}</span>
+            <span style={{color:"#ff5252"}}>🐻 SHORT: {shorts24}</span>
+          </div>
+        </div>
+
+        {/* Aktywność kanałów */}
+        <div style={{background:"#1c2030",border:"1px solid #2e3350",borderRadius:10,padding:"16px 20px"}}>
+          <div style={{color:"#9898b8",fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",
+            marginBottom:14,fontWeight:600}}>Aktywność kanałów (24h)</div>
+          {chAct.slice(0,5).map(ch => {
+            const maxSig = chAct[0]?.signals||1;
+            const pct = Math.round(ch.signals/maxSig*100);
+            const agoMs = now - ch.last;
+            const agoStr = agoMs < 3600000
+              ? `${Math.floor(agoMs/60000)}m temu`
+              : `${Math.floor(agoMs/3600000)}h temu`;
+            return (
+              <div key={ch.name} style={{marginBottom:8}}>
+                <div style={{display:"flex",justifyContent:"space-between",
+                  fontSize:10,fontFamily:"monospace",marginBottom:3}}>
+                  <span style={{color:"#e8eaf6"}}>{ch.name}</span>
+                  <span style={{color:"#5c6494"}}>{ch.signals} sygn · {agoStr}</span>
+                </div>
+                <div style={{background:"#0d0f17",borderRadius:3,height:6,overflow:"hidden"}}>
+                  <div style={{width:`${pct}%`,height:"100%",background:"#82b1ff",borderRadius:3}}/>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Pozycje vs sygnały */}
+        <div style={{background:"#1c2030",border:"1px solid #2e3350",borderRadius:10,padding:"16px 20px"}}>
+          <div style={{color:"#9898b8",fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",
+            marginBottom:14,fontWeight:600}}>Stan portfela</div>
+          {[
+            {l:"Otwarte pozycje",v:openPos.length,c:openPos.length>5?"#ff5252":openPos.length>2?"#ffd740":"#00e676",
+              bar:Math.min(openPos.length/10*100,100)},
+            {l:"Zamknięte (all)",v:closedPos.length,c:"#82b1ff",bar:Math.min(closedPos.length/100*100,100)},
+            {l:"Sygnały ogółem",v:signals.length,c:"#9898b8",bar:Math.min(signals.length/200*100,100)},
+            {l:"Konwersja sygn→trade",
+              v:signals.length>0?`${Math.round((closedPos.length+openPos.length)/signals.length*100)}%`:"—",
+              c:"#ce93d8",bar:signals.length>0?(closedPos.length+openPos.length)/signals.length*100:0},
+          ].map(s=>(
+            <div key={s.l} style={{marginBottom:10}}>
+              <div style={{display:"flex",justifyContent:"space-between",
+                fontSize:10,fontFamily:"monospace",marginBottom:3}}>
+                <span style={{color:"#9898b8"}}>{s.l}</span>
+                <span style={{color:s.c,fontWeight:700}}>{s.v}</span>
+              </div>
+              <div style={{background:"#0d0f17",borderRadius:3,height:5,overflow:"hidden"}}>
+                <div style={{width:`${s.bar}%`,height:"100%",background:s.c,borderRadius:3}}/>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Uwaga o Gorączce */}
+      {ratio >= 2 && (
+        <div style={{background:"rgba(255,82,82,.08)",border:"1px solid rgba(255,82,82,.3)",
+          borderLeft:"3px solid #ff5252",borderRadius:8,padding:"14px 18px"}}>
+          <div style={{color:"#ff5252",fontWeight:700,fontSize:13,fontFamily:"monospace",marginBottom:6}}>
+            🔥 AKTYWNY ALERT: Gorączka rynku wykryta
+          </div>
+          <div style={{color:"#b8b8d0",fontSize:12,lineHeight:1.6}}>
+            W ostatniej godzinie pojawiło się <strong style={{color:"#ff5252"}}>{last1h.length} sygnałów</strong> przy
+            normalnej częstotliwości {medianPerHour}/h. Historycznie okresy gorączki kończą się
+            odwróceniem lub fałszywymi sygnałami. Rozważ zmniejszenie rozmiaru pozycji
+            lub wstrzymanie nowych wejść do czasu uspokojenia rytmu.
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+}
+
 // ─── Tab Bar ───────────────────────────────────────────────────────────────────
 const TABS=[
   {id:"portfolio",label:"📊 Portfolio"},
@@ -1330,6 +1671,7 @@ const TABS=[
   {id:"log",label:"📝 Log"},
   {id:"debug",label:"🔧 Debug"},
   {id:"intelligence",label:"🧠 Intelligence"},
+  {id:"sentiment",label:"🎵 Sentiment"},
 ];
 
 function TabBar({active,onChange}){
@@ -1538,6 +1880,8 @@ export default function App(){
         {tab==="debug"&&<BotHealthDashboard health={health} channelNames={channelNames} openPos={openPos}/>}
 
         {tab==="intelligence"&&<ForensicLossAnalysis positions={closedPos} channelNames={channelNames}/>}
+
+        {tab==="sentiment"&&<SentimentHarmonia signals={signals} openPos={openPos} closedPos={closedPos}/>}
       </div>
     </div>
   );
