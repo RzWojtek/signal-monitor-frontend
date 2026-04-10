@@ -1661,6 +1661,204 @@ function SentimentHarmonia({signals, openPos, closedPos}) {
   );
 }
 
+
+// ─── 🌊 MARKET REGIME DETECTOR ───────────────────────────────────────────────
+function MarketRegimeWidget({regime}) {
+  if (!regime) return (
+    <div style={{background:"#1c2030",border:"1px solid #2e3350",borderRadius:10,
+      padding:"20px",textAlign:"center",color:"#9898b8",fontSize:12,fontFamily:"monospace"}}>
+      ⏳ Oczekiwanie na dane... <br/>
+      <span style={{fontSize:10,color:"#5c6494"}}>market_regime.py musi być uruchomiony na VPS</span>
+    </div>
+  );
+
+  const rc = regime.regime_color || "#9898b8";
+  const score = regime.regime_score || 50;
+  const btc = regime.btc || {};
+  const fng = regime.fear_greed || {};
+  const dom = regime.dominance || {};
+  const updatedAt = regime.updated_at
+    ? new Date(regime.updated_at).toLocaleTimeString("pl-PL")
+    : "—";
+
+  const fngColor = fng.value >= 75 ? "#ff5252"
+    : fng.value >= 55 ? "#ffd740"
+    : fng.value <= 25 ? "#00e676"
+    : fng.value <= 45 ? "#82b1ff"
+    : "#9898b8";
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:14}}>
+
+      {/* Główny wskaźnik reżimu */}
+      <div style={{background:"#1c2030",border:`2px solid ${rc}44`,borderRadius:12,padding:"20px 24px"}}>
+        <div style={{display:"flex",alignItems:"center",gap:16,flexWrap:"wrap"}}>
+          <div style={{textAlign:"center",minWidth:80}}>
+            <div style={{
+              width:70,height:70,borderRadius:"50%",margin:"0 auto",
+              background:`conic-gradient(${rc} ${score}%, #2e3350 ${score}%)`,
+              display:"flex",alignItems:"center",justifyContent:"center",
+              position:"relative",
+            }}>
+              <div style={{width:54,height:54,borderRadius:"50%",background:"#1c2030",
+                display:"flex",alignItems:"center",justifyContent:"center"}}>
+                <span style={{color:rc,fontFamily:"monospace",fontSize:16,fontWeight:800}}>{score}</span>
+              </div>
+            </div>
+            <div style={{color:"#5c6494",fontSize:9,marginTop:4}}>Bull score</div>
+          </div>
+          <div style={{flex:1}}>
+            <div style={{color:rc,fontWeight:800,fontSize:20,fontFamily:"monospace",letterSpacing:"0.06em"}}>
+              {regime.regime}
+            </div>
+            <div style={{color:"#b8b8d0",fontSize:12,marginTop:4}}>{regime.regime_label}</div>
+            <div style={{color:"#5c6494",fontSize:10,marginTop:4}}>
+              Aktualizacja: {updatedAt} UTC · co 60 minut
+            </div>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <div style={{textAlign:"center"}}>
+              <div style={{color:"#e8eaf6",fontFamily:"monospace",fontSize:16,fontWeight:700}}>
+                ${(btc.price||0).toLocaleString("pl-PL",{maximumFractionDigits:0})}
+              </div>
+              <div style={{color:btc.change24h>=0?"#00e676":"#ff5252",fontSize:11,fontFamily:"monospace"}}>
+                {btc.change24h>=0?"+":""}{btc.change24h}% (24h)
+              </div>
+              <div style={{color:"#5c6494",fontSize:10}}>BTC/USDT</div>
+            </div>
+            <div style={{textAlign:"center"}}>
+              <div style={{color:fngColor,fontFamily:"monospace",fontSize:16,fontWeight:700}}>
+                {fng.value||"—"}
+              </div>
+              <div style={{color:fngColor,fontSize:11}}>{fng.label||"—"}</div>
+              <div style={{color:"#5c6494",fontSize:10}}>Fear & Greed</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Dane szczegółowe */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12}}>
+
+        {/* BTC metryki */}
+        <div style={{background:"#1c2030",border:"1px solid #2e3350",borderRadius:10,padding:"14px 16px"}}>
+          <div style={{color:"#9898b8",fontSize:10,letterSpacing:"0.1em",
+            textTransform:"uppercase",marginBottom:12,fontWeight:600}}>BTC Metryki</div>
+          {[
+            {l:"Cena",v:`$${(btc.price||0).toLocaleString()}`,c:"#e8eaf6"},
+            {l:"Zmiana 24h",v:`${btc.change24h>=0?"+":""}${btc.change24h}%`,
+              c:btc.change24h>=0?"#00e676":"#ff5252"},
+            {l:"Zakres 24h",v:`${btc.range24h_pct||0}%`,
+              c:(btc.range24h_pct||0)>5?"#ff9f43":"#9898b8"},
+            {l:"Wolumen 24h",v:`$${((btc.volume24h||0)/1e9).toFixed(1)}B`,c:"#82b1ff"},
+          ].map(s=>(
+            <div key={s.l} style={{display:"flex",justifyContent:"space-between",
+              padding:"4px 0",borderBottom:"1px solid rgba(46,51,80,.4)"}}>
+              <span style={{color:"#5c6494",fontSize:11}}>{s.l}</span>
+              <span style={{color:s.c,fontSize:11,fontFamily:"monospace",fontWeight:600}}>{s.v}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Fear & Greed historia */}
+        <div style={{background:"#1c2030",border:"1px solid #2e3350",borderRadius:10,padding:"14px 16px"}}>
+          <div style={{color:"#9898b8",fontSize:10,letterSpacing:"0.1em",
+            textTransform:"uppercase",marginBottom:12,fontWeight:600}}>Fear & Greed (7 dni)</div>
+          <div style={{display:"flex",alignItems:"flex-end",gap:4,height:60,marginBottom:8}}>
+            {(fng.history_7d||[]).slice().reverse().map((v,i)=>{
+              const c = v>=75?"#ff5252":v>=55?"#ffd740":v<=25?"#00e676":v<=45?"#82b1ff":"#9898b8";
+              return (
+                <div key={i} style={{flex:1,display:"flex",flexDirection:"column",
+                  alignItems:"center",justifyContent:"flex-end",height:"100%"}}>
+                  <div title={`${v}`} style={{
+                    width:"100%",background:c,borderRadius:"2px 2px 0 0",
+                    height:`${v}%`,opacity:i===(fng.history_7d||[]).length-1?1:0.6,
+                  }}/>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:"#5c6494"}}>
+            <span>7 dni temu</span><span>dziś</span>
+          </div>
+          <div style={{marginTop:8,fontSize:11,color:"#9898b8"}}>
+            Trend: <span style={{color:fng.trend==="rosnący"?"#00e676":fng.trend==="malejący"?"#ff5252":"#9898b8"}}>
+              {fng.trend==="rosnący"?"📈 rosnący":fng.trend==="malejący"?"📉 malejący":"➡️ stabilny"}
+            </span>
+          </div>
+        </div>
+
+        {/* Czynniki + dominacja */}
+        <div style={{background:"#1c2030",border:"1px solid #2e3350",borderRadius:10,padding:"14px 16px"}}>
+          <div style={{color:"#9898b8",fontSize:10,letterSpacing:"0.1em",
+            textTransform:"uppercase",marginBottom:12,fontWeight:600}}>Czynniki reżimu</div>
+          {(regime.regime_factors||[]).map((f,i)=>(
+            <div key={i} style={{fontSize:11,color:"#b8b8d0",padding:"3px 0",
+              borderBottom:"1px solid rgba(46,51,80,.4)",display:"flex",alignItems:"center",gap:6}}>
+              <span style={{color:rc,fontSize:8}}>●</span>{f}
+            </div>
+          ))}
+          {dom.btc_dominance && (
+            <div style={{marginTop:10}}>
+              <div style={{color:"#9898b8",fontSize:10,marginBottom:4}}>BTC Dominacja</div>
+              <div style={{background:"#0d0f17",borderRadius:4,height:8,overflow:"hidden"}}>
+                <div style={{width:`${dom.btc_dominance}%`,height:"100%",
+                  background:"#f7931a",borderRadius:4}}/>
+              </div>
+              <div style={{color:"#f7931a",fontFamily:"monospace",fontSize:12,
+                fontWeight:700,marginTop:4}}>{dom.btc_dominance}%</div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Rekomendacje tradingowe */}
+      <div style={{background:"#1c2030",border:`1px solid ${rc}44`,borderRadius:10,padding:"16px 20px"}}>
+        <div style={{color:"#9898b8",fontSize:10,letterSpacing:"0.1em",
+          textTransform:"uppercase",marginBottom:12,fontWeight:600}}>
+          🎯 Rekomendacje dla reżimu {regime.regime}
+        </div>
+        {(regime.recommendations||[]).map((r,i)=>(
+          <div key={i} style={{display:"flex",alignItems:"flex-start",gap:10,
+            padding:"8px 0",borderBottom:"1px solid rgba(46,51,80,.4)"}}>
+            <span style={{color:rc,fontSize:14,flexShrink:0}}>→</span>
+            <span style={{color:"#b8b8d0",fontSize:12,lineHeight:1.5}}>{r}</span>
+          </div>
+        ))}
+      </div>
+
+    </div>
+  );
+}
+
+// ─── 🧠 INTELLIGENCE DASHBOARD — łączy Forensic + Market Regime ───────────────
+function IntelligenceDashboard({closedPos, channelNames, marketRegime}) {
+  const [activeSection, setActiveSection] = useState("regime");
+  const sections = [
+    {id:"regime",   label:"🌊 Market Regime"},
+    {id:"forensic", label:"🔬 Anatomia Przegranej"},
+  ];
+  return (
+    <div>
+      {/* Sub-nav */}
+      <div style={{display:"flex",gap:8,marginBottom:20,borderBottom:"1px solid #2e3350",paddingBottom:12}}>
+        {sections.map(s=>(
+          <button key={s.id} onClick={()=>setActiveSection(s.id)} style={{
+            background:activeSection===s.id?"rgba(0,229,255,.1)":"transparent",
+            color:activeSection===s.id?"#00e5ff":"#9898b8",
+            border:activeSection===s.id?"1px solid rgba(0,229,255,.3)":"1px solid #2e3350",
+            borderRadius:8,padding:"8px 18px",cursor:"pointer",
+            fontFamily:"monospace",fontSize:12,fontWeight:activeSection===s.id?700:400,
+            transition:"all .15s",
+          }}>{s.label}</button>
+        ))}
+      </div>
+      {activeSection==="regime"   && <MarketRegimeWidget regime={marketRegime}/>}
+      {activeSection==="forensic" && <ForensicLossAnalysis positions={closedPos} channelNames={channelNames}/>}
+    </div>
+  );
+}
+
 // ─── Tab Bar ───────────────────────────────────────────────────────────────────
 const TABS=[
   {id:"portfolio",label:"📊 Portfolio"},
@@ -1803,6 +2001,13 @@ export default function App(){
     });
   },[]);
 
+  const [marketRegime, setMarketRegime] = useState(null);
+  useEffect(()=>{
+    return onSnapshot(doc(db,"market_regime","current"), snap=>{
+      if(snap.exists()) setMarketRegime(snap.data());
+    });
+  },[]);
+
   const Card=({children,color,title,count})=>(
     <div style={{background:CARD,border:`1px solid ${color||BORDER}`,borderRadius:10,padding:"16px 20px",marginBottom:20}}>
       {title&&<div style={{color:color||"#9898b8",fontSize:11,letterSpacing:2,marginBottom:14,fontFamily:"monospace"}}>
@@ -1879,7 +2084,7 @@ export default function App(){
 
         {tab==="debug"&&<BotHealthDashboard health={health} channelNames={channelNames} openPos={openPos}/>}
 
-        {tab==="intelligence"&&<ForensicLossAnalysis positions={closedPos} channelNames={channelNames}/>}
+        {tab==="intelligence"&&<IntelligenceDashboard closedPos={closedPos} channelNames={channelNames} marketRegime={marketRegime}/>}
 
         {tab==="sentiment"&&<SentimentHarmonia signals={signals} openPos={openPos} closedPos={closedPos}/>}
       </div>
