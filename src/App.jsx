@@ -1125,7 +1125,7 @@ function ForensicLossAnalysis({positions, channelNames}) {
 
       {/* Rekomendacje */}
       <div style={{background:"#1c2030",border:"1px solid #2e3350",borderRadius:10,padding:"16px 20px"}}>
-        <div style={{color:"#9898b8",fontSize:10,letterSpacing:.12em,textTransform:"uppercase",marginBottom:14,fontWeight:600}}>
+        <div style={{color:"#9898b8",fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:14,fontWeight:600}}>
           🎯 Rekomendacje AI
         </div>
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
@@ -1149,7 +1149,7 @@ function ForensicLossAnalysis({positions, channelNames}) {
 
         {/* LONG vs SHORT */}
         <div style={{background:"#1c2030",border:"1px solid #2e3350",borderRadius:10,padding:"16px 20px"}}>
-          <div style={{color:"#9898b8",fontSize:10,letterSpacing:.12em,textTransform:"uppercase",marginBottom:14,fontWeight:600}}>
+          <div style={{color:"#9898b8",fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:14,fontWeight:600}}>
             LONG vs SHORT
           </div>
           <BarRow label="LONG" val={wr(longs)*longs.length/100|0} total={longs.length} color="#00e676"/>
@@ -1168,7 +1168,7 @@ function ForensicLossAnalysis({positions, channelNames}) {
 
         {/* Dźwignia */}
         <div style={{background:"#1c2030",border:"1px solid #2e3350",borderRadius:10,padding:"16px 20px"}}>
-          <div style={{color:"#9898b8",fontSize:10,letterSpacing:.12em,textTransform:"uppercase",marginBottom:14,fontWeight:600}}>
+          <div style={{color:"#9898b8",fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:14,fontWeight:600}}>
             WIN RATE WG DŹWIGNI
           </div>
           {levStats.map(l => {
@@ -1189,7 +1189,7 @@ function ForensicLossAnalysis({positions, channelNames}) {
 
         {/* Dni tygodnia */}
         <div style={{background:"#1c2030",border:"1px solid #2e3350",borderRadius:10,padding:"16px 20px"}}>
-          <div style={{color:"#9898b8",fontSize:10,letterSpacing:.12em,textTransform:"uppercase",marginBottom:14,fontWeight:600}}>
+          <div style={{color:"#9898b8",fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:14,fontWeight:600}}>
             WIN RATE WG DNIA TYGODNIA (UTC)
           </div>
           {dayStats.map(d => {
@@ -1210,7 +1210,7 @@ function ForensicLossAnalysis({positions, channelNames}) {
 
         {/* Godziny UTC */}
         <div style={{background:"#1c2030",border:"1px solid #2e3350",borderRadius:10,padding:"16px 20px"}}>
-          <div style={{color:"#9898b8",fontSize:10,letterSpacing:.12em,textTransform:"uppercase",marginBottom:14,fontWeight:600}}>
+          <div style={{color:"#9898b8",fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:14,fontWeight:600}}>
             WIN RATE WG GODZINY UTC
           </div>
           <div style={{display:"flex",alignItems:"flex-end",gap:3,height:80,marginBottom:8}}>
@@ -1237,7 +1237,7 @@ function ForensicLossAnalysis({positions, channelNames}) {
 
       {/* Ranking kanałów */}
       <div style={{background:"#1c2030",border:"1px solid #2e3350",borderRadius:10,padding:"16px 20px"}}>
-        <div style={{color:"#9898b8",fontSize:10,letterSpacing:.12em,textTransform:"uppercase",marginBottom:14,fontWeight:600}}>
+        <div style={{color:"#9898b8",fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:14,fontWeight:600}}>
           RANKING KANAŁÓW (min. 2 trady)
         </div>
         <div style={{overflowX:"auto"}}>
@@ -1246,7 +1246,7 @@ function ForensicLossAnalysis({positions, channelNames}) {
               <tr style={{borderBottom:"1px solid #2e3350"}}>
                 {["#","Kanał","Trades","Win Rate","Śr. P&L","Najlepszy","Najgorszy","Ocena"].map(h=>(
                   <th key={h} style={{color:"#9898b8",fontSize:10,padding:"6px 10px",textAlign:"left",
-                    textTransform:"uppercase",letterSpacing:.08em,whiteSpace:"nowrap"}}>{h}</th>
+                    textTransform:"uppercase",letterSpacing:"0.08em",whiteSpace:"nowrap"}}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -1297,7 +1297,7 @@ function ForensicLossAnalysis({positions, channelNames}) {
 
       {/* Serie strat */}
       <div style={{background:"#1c2030",border:"1px solid #2e3350",borderRadius:10,padding:"16px 20px"}}>
-        <div style={{color:"#9898b8",fontSize:10,letterSpacing:.12em,textTransform:"uppercase",marginBottom:14,fontWeight:600}}>
+        <div style={{color:"#9898b8",fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:14,fontWeight:600}}>
           PSYCHOLOGIA STRAT
         </div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:16}}>
