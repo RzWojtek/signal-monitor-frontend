@@ -876,6 +876,450 @@ function BotHealthDashboard({health, channelNames, openPos}) {
   );
 }
 
+
+// ─── 🔬 FORENSIC LOSS ANALYSIS — Anatomia Przegranej ─────────────────────────
+function ForensicLossAnalysis({positions, channelNames}) {
+  const losses = positions.filter(p => (p.realized_pnl||0) < 0);
+  const wins   = positions.filter(p => (p.realized_pnl||0) >= 0);
+  const total  = positions.length;
+
+  if (total < 5) return (
+    <div style={{color:"#9898b8",padding:40,textAlign:"center",fontSize:13,fontFamily:"monospace"}}>
+      Potrzeba min. 5 zamkniętych pozycji do analizy. Masz: {total}
+    </div>
+  );
+
+  // ── Helpers ──────────────────────────────────────────────────────────────────
+  const wr = (arr) => {
+    const w = arr.filter(p=>(p.realized_pnl||0)>=0).length;
+    return arr.length ? Math.round(w/arr.length*100) : 0;
+  };
+  const avgPnl = (arr) => arr.length
+    ? (arr.reduce((s,p)=>s+(p.realized_pnl||0),0)/arr.length).toFixed(2)
+    : 0;
+  const getHour = (p) => {
+    if (!p.opened_at) return null;
+    return new Date(p.opened_at).getUTCHours();
+  };
+  const getDay = (p) => {
+    if (!p.opened_at) return null;
+    return new Date(p.opened_at).getUTCDay(); // 0=niedziela
+  };
+  const dayName = d => ["Niedz","Pon","Wt","Śr","Czw","Pt","Sob"][d];
+  const bareId = id => String(id||"").replace(/^-100/,"");
+
+  // ── Analiza po godzinie UTC ───────────────────────────────────────────────────
+  const byHour = {};
+  positions.forEach(p => {
+    const h = getHour(p);
+    if (h===null) return;
+    const slot = `${String(h).padStart(2,"0")}:00`;
+    if (!byHour[slot]) byHour[slot] = [];
+    byHour[slot].push(p);
+  });
+  const hourStats = Object.entries(byHour)
+    .map(([h,arr])=>({hour:h, total:arr.length, wr:wr(arr), avg:avgPnl(arr)}))
+    .sort((a,b)=>a.hour.localeCompare(b.hour));
+  const bestHour  = [...hourStats].filter(h=>h.total>=2).sort((a,b)=>b.wr-a.wr)[0];
+  const worstHour = [...hourStats].filter(h=>h.total>=2).sort((a,b)=>a.wr-b.wr)[0];
+
+  // ── Analiza po dniu tygodnia ──────────────────────────────────────────────────
+  const byDay = {};
+  positions.forEach(p => {
+    const d = getDay(p);
+    if (d===null) return;
+    if (!byDay[d]) byDay[d] = [];
+    byDay[d].push(p);
+  });
+  const dayStats = Object.entries(byDay)
+    .map(([d,arr])=>({day:Number(d), name:dayName(Number(d)), total:arr.length, wr:wr(arr), avg:avgPnl(arr)}))
+    .sort((a,b)=>a.day-b.day);
+  const bestDay  = [...dayStats].filter(d=>d.total>=2).sort((a,b)=>b.wr-a.wr)[0];
+  const worstDay = [...dayStats].filter(d=>d.total>=2).sort((a,b)=>a.wr-b.wr)[0];
+
+  // ── Analiza po dźwigni ────────────────────────────────────────────────────────
+  const levBuckets = {"1-10x":[],"11-20x":[],"21-30x":[],"31-50x":[],"50x+":[]};
+  positions.forEach(p => {
+    const lev = p.leverage||1;
+    if (lev<=10) levBuckets["1-10x"].push(p);
+    else if (lev<=20) levBuckets["11-20x"].push(p);
+    else if (lev<=30) levBuckets["21-30x"].push(p);
+    else if (lev<=50) levBuckets["31-50x"].push(p);
+    else levBuckets["50x+"].push(p);
+  });
+  const levStats = Object.entries(levBuckets)
+    .filter(([,arr])=>arr.length>0)
+    .map(([lev,arr])=>({lev, total:arr.length, wr:wr(arr), avg:avgPnl(arr)}));
+
+  // ── Analiza LONG vs SHORT ─────────────────────────────────────────────────────
+  const longs  = positions.filter(p=>["LONG","SPOT_BUY"].includes(p.signal_type));
+  const shorts = positions.filter(p=>p.signal_type==="SHORT");
+
+  // ── Analiza po kanale ─────────────────────────────────────────────────────────
+  const byChannel = {};
+  positions.forEach(p => {
+    const ch = bareId(p.channel) || "?";
+    if (!byChannel[ch]) byChannel[ch] = [];
+    byChannel[ch].push(p);
+  });
+  const chStats = Object.entries(byChannel)
+    .map(([ch,arr])=>({ch, name:lookupName(ch,channelNames), total:arr.length, wr:wr(arr), avg:Number(avgPnl(arr))}))
+    .filter(c=>c.total>=2)
+    .sort((a,b)=>b.wr-a.wr);
+
+  // ── Analiza serii strat ───────────────────────────────────────────────────────
+  const sorted = [...positions].sort((a,b)=>new Date(a.closed_at||0)-new Date(b.closed_at||0));
+  let maxStreak=0, curStreak=0, streakAfterLoss=0, totalAfterLoss=0;
+  sorted.forEach((p,i) => {
+    if ((p.realized_pnl||0)<0) { curStreak++; maxStreak=Math.max(maxStreak,curStreak); }
+    else curStreak=0;
+    if (i>0 && (sorted[i-1].realized_pnl||0)<0) {
+      totalAfterLoss++;
+      if ((p.realized_pnl||0)<0) streakAfterLoss++;
+    }
+  });
+  const pAfterLoss = totalAfterLoss > 0 ? Math.round(streakAfterLoss/totalAfterLoss*100) : 0;
+
+  // ── Analiza weekendy vs weekdays ──────────────────────────────────────────────
+  const weekends = positions.filter(p=>{ const d=getDay(p); return d===0||d===6; });
+  const weekdays = positions.filter(p=>{ const d=getDay(p); return d>0&&d<6; });
+
+  // ── Generuj rekomendacje ──────────────────────────────────────────────────────
+  const recs = [];
+
+  if (bestHour && worstHour && bestHour.hour !== worstHour.hour) {
+    recs.push({
+      level: "success",
+      icon: "⏰",
+      title: `Najlepsza godzina: ${bestHour.hour} UTC`,
+      body: `Win rate ${bestHour.wr}% na ${bestHour.total} tradach. Najgorsza: ${worstHour.hour} UTC (${worstHour.wr}% na ${worstHour.total} tradach). Rozważ ignorowanie sygnałów w ${worstHour.hour} UTC.`
+    });
+  }
+
+  if (bestDay && worstDay && bestDay.day !== worstDay.day) {
+    recs.push({
+      level: worstDay.wr < 35 ? "danger" : "warning",
+      icon: "📅",
+      title: `Uważaj na ${worstDay.name}`,
+      body: `Win rate ${worstDay.wr}% vs ${bestDay.wr}% w ${bestDay.name}. ${worstDay.wr<30?"Rozważ całkowite wstrzymanie tradingu w ten dzień.":"Zmniejsz rozmiar pozycji o 50% w ten dzień."}`
+    });
+  }
+
+  if (wr(longs) > wr(shorts) + 15 && shorts.length >= 3) {
+    recs.push({
+      level: "warning",
+      icon: "📉",
+      title: `SHORT słabszy o ${wr(longs)-wr(shorts)}pp`,
+      body: `LONG: ${wr(longs)}% win rate (${longs.length} tradów). SHORT: ${wr(shorts)}% win rate (${shorts.length} tradów). Rozważ pomijanie sygnałów SHORT lub zmniejszenie ich rozmiaru o 50%.`
+    });
+  } else if (wr(shorts) > wr(longs) + 15 && longs.length >= 3) {
+    recs.push({
+      level: "warning",
+      icon: "📈",
+      title: `LONG słabszy o ${wr(shorts)-wr(longs)}pp`,
+      body: `SHORT: ${wr(shorts)}% win rate. LONG: ${wr(longs)}% win rate. Rynek jest bearish — rozważ priorytet dla SHORT.`
+    });
+  }
+
+  const badLev = levStats.filter(l=>l.wr<40&&l.total>=2);
+  if (badLev.length) {
+    recs.push({
+      level: "danger",
+      icon: "⚡",
+      title: `Dźwignia ${badLev.map(l=>l.lev).join(", ")} niszczy kapitał`,
+      body: `Win rate przy ${badLev[0].lev}: ${badLev[0].wr}% na ${badLev[0].total} tradach. Średni P&L: $${badLev[0].avg}. Unikaj tej dźwigni.`
+    });
+  }
+
+  if (maxStreak >= 3) {
+    recs.push({
+      level: "danger",
+      icon: "🔴",
+      title: `Maksymalna seria strat: ${maxStreak}`,
+      body: `Po stracie prawdopodobieństwo kolejnej straty: ${pAfterLoss}%. ${pAfterLoss>50?"Zatrzymaj trading po 2 stratach z rzędu i wróć następnego dnia.":"Seria strat to normalność — nie zwiększaj ryzyka żeby odrobić."}`
+    });
+  }
+
+  if (weekends.length >= 3 && wr(weekends) < wr(weekdays) - 15) {
+    recs.push({
+      level: "warning",
+      icon: "🏖️",
+      title: `Weekendy słabsze o ${wr(weekdays)-wr(weekends)}pp`,
+      body: `Weekend: ${wr(weekends)}% win rate. Dni robocze: ${wr(weekdays)}% win rate. Rynek weekendowy zachowuje się inaczej — rozważ pauzę Sob-Niedz.`
+    });
+  }
+
+  const badChannels = chStats.filter(c=>c.wr<40&&c.total>=3);
+  if (badChannels.length) {
+    recs.push({
+      level: "danger",
+      icon: "📡",
+      title: `Kanał do rozważenia: ${badChannels[0].name}`,
+      body: `Win rate: ${badChannels[0].wr}% na ${badChannels[0].total} tradach. Średni P&L: $${badChannels[0].avg.toFixed(2)}. Ten kanał traci Twój kapitał.`
+    });
+  }
+
+  if (recs.length === 0) {
+    recs.push({
+      level: "success",
+      icon: "✅",
+      title: "Brak wyraźnych wzorców strat",
+      body: `Na ${total} tradach nie wykryto systematycznych błędów. Zbieraj więcej danych — optymalna próba to 50+ zamkniętych pozycji.`
+    });
+  }
+
+  const levelColor = {
+    success: {bg:"rgba(0,230,118,.08)", border:"rgba(0,230,118,.3)", text:"#00e676"},
+    warning: {bg:"rgba(255,215,64,.08)", border:"rgba(255,215,64,.3)", text:"#ffd740"},
+    danger:  {bg:"rgba(255,82,82,.08)",  border:"rgba(255,82,82,.3)",  text:"#ff5252"},
+  };
+
+  // ── Mini bar chart helper ─────────────────────────────────────────────────────
+  const BarRow = ({label, val, total, color}) => {
+    const pct = total > 0 ? Math.round(val/total*100) : 0;
+    return (
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:5}}>
+        <div style={{width:60,fontSize:10,color:"#9898b8",fontFamily:"monospace",textAlign:"right",flexShrink:0}}>{label}</div>
+        <div style={{flex:1,background:"#1c2030",borderRadius:3,height:14,overflow:"hidden"}}>
+          <div style={{width:`${pct}%`,height:"100%",background:color,borderRadius:3,
+            transition:"width .5s ease",display:"flex",alignItems:"center",paddingLeft:4}}>
+            {pct>15&&<span style={{fontSize:9,color:"#000",fontWeight:700}}>{pct}%</span>}
+          </div>
+        </div>
+        <div style={{width:55,fontSize:10,color:"#9898b8",fontFamily:"monospace",flexShrink:0}}>
+          {val}/{total} ({pct}%)
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:16}}>
+
+      {/* Header */}
+      <div style={{background:"#1c2030",border:"1px solid #2e3350",borderRadius:10,padding:"16px 20px"}}>
+        <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:8}}>
+          <span style={{fontSize:20}}>🔬</span>
+          <div>
+            <div style={{color:"#e8eaf6",fontWeight:800,fontSize:14,letterSpacing:2,fontFamily:"monospace"}}>
+              ANATOMIA PRZEGRANEJ
+            </div>
+            <div style={{color:"#9898b8",fontSize:11}}>
+              Analiza {total} zamkniętych pozycji · {losses.length} strat · {wins.length} zysków
+            </div>
+          </div>
+          <div style={{marginLeft:"auto",display:"flex",gap:20}}>
+            <div style={{textAlign:"center"}}>
+              <div style={{color:"#00e676",fontFamily:"monospace",fontSize:20,fontWeight:700}}>{wr(positions)}%</div>
+              <div style={{color:"#9898b8",fontSize:10}}>Win Rate</div>
+            </div>
+            <div style={{textAlign:"center"}}>
+              <div style={{color:Number(avgPnl(positions))>=0?"#00e676":"#ff5252",fontFamily:"monospace",fontSize:20,fontWeight:700}}>
+                ${avgPnl(positions)}
+              </div>
+              <div style={{color:"#9898b8",fontSize:10}}>Śr. P&L</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Rekomendacje */}
+      <div style={{background:"#1c2030",border:"1px solid #2e3350",borderRadius:10,padding:"16px 20px"}}>
+        <div style={{color:"#9898b8",fontSize:10,letterSpacing:.12em,textTransform:"uppercase",marginBottom:14,fontWeight:600}}>
+          🎯 Rekomendacje AI
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          {recs.map((r,i) => {
+            const c = levelColor[r.level];
+            return (
+              <div key={i} style={{background:c.bg,border:`1px solid ${c.border}`,borderLeft:`3px solid ${c.text}`,
+                borderRadius:8,padding:"12px 16px"}}>
+                <div style={{color:c.text,fontWeight:700,fontSize:13,fontFamily:"monospace",marginBottom:4}}>
+                  {r.icon} {r.title}
+                </div>
+                <div style={{color:"#b8b8d0",fontSize:12,lineHeight:1.5}}>{r.body}</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Wykresy: 2 kolumny */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+
+        {/* LONG vs SHORT */}
+        <div style={{background:"#1c2030",border:"1px solid #2e3350",borderRadius:10,padding:"16px 20px"}}>
+          <div style={{color:"#9898b8",fontSize:10,letterSpacing:.12em,textTransform:"uppercase",marginBottom:14,fontWeight:600}}>
+            LONG vs SHORT
+          </div>
+          <BarRow label="LONG" val={wr(longs)*longs.length/100|0} total={longs.length} color="#00e676"/>
+          <BarRow label="SHORT" val={wr(shorts)*shorts.length/100|0} total={shorts.length} color="#ff5252"/>
+          <div style={{marginTop:10,display:"flex",gap:20}}>
+            <div>
+              <div style={{color:"#9898b8",fontSize:10}}>LONG win rate</div>
+              <div style={{color:"#00e676",fontFamily:"monospace",fontSize:16,fontWeight:700}}>{wr(longs)}%</div>
+            </div>
+            <div>
+              <div style={{color:"#9898b8",fontSize:10}}>SHORT win rate</div>
+              <div style={{color:"#ff5252",fontFamily:"monospace",fontSize:16,fontWeight:700}}>{wr(shorts)}%</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Dźwignia */}
+        <div style={{background:"#1c2030",border:"1px solid #2e3350",borderRadius:10,padding:"16px 20px"}}>
+          <div style={{color:"#9898b8",fontSize:10,letterSpacing:.12em,textTransform:"uppercase",marginBottom:14,fontWeight:600}}>
+            WIN RATE WG DŹWIGNI
+          </div>
+          {levStats.map(l => {
+            const c = l.wr>=55?"#00e676":l.wr>=40?"#ffd740":"#ff5252";
+            return (
+              <div key={l.lev} style={{display:"flex",alignItems:"center",gap:8,marginBottom:7}}>
+                <div style={{width:55,fontSize:10,color:"#9898b8",fontFamily:"monospace",flexShrink:0}}>{l.lev}</div>
+                <div style={{flex:1,background:"#0d0f17",borderRadius:3,height:14,overflow:"hidden"}}>
+                  <div style={{width:`${l.wr}%`,height:"100%",background:c,borderRadius:3}}/>
+                </div>
+                <div style={{width:70,fontSize:10,color:c,fontFamily:"monospace",flexShrink:0,textAlign:"right"}}>
+                  {l.wr}% ({l.total}tr)
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Dni tygodnia */}
+        <div style={{background:"#1c2030",border:"1px solid #2e3350",borderRadius:10,padding:"16px 20px"}}>
+          <div style={{color:"#9898b8",fontSize:10,letterSpacing:.12em,textTransform:"uppercase",marginBottom:14,fontWeight:600}}>
+            WIN RATE WG DNIA TYGODNIA (UTC)
+          </div>
+          {dayStats.map(d => {
+            const c = d.wr>=55?"#00e676":d.wr>=40?"#ffd740":"#ff5252";
+            return (
+              <div key={d.day} style={{display:"flex",alignItems:"center",gap:8,marginBottom:7}}>
+                <div style={{width:45,fontSize:10,color:"#9898b8",fontFamily:"monospace",flexShrink:0}}>{d.name}</div>
+                <div style={{flex:1,background:"#0d0f17",borderRadius:3,height:14,overflow:"hidden"}}>
+                  <div style={{width:`${d.wr}%`,height:"100%",background:c,borderRadius:3}}/>
+                </div>
+                <div style={{width:70,fontSize:10,color:c,fontFamily:"monospace",flexShrink:0,textAlign:"right"}}>
+                  {d.wr}% ({d.total}tr)
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Godziny UTC */}
+        <div style={{background:"#1c2030",border:"1px solid #2e3350",borderRadius:10,padding:"16px 20px"}}>
+          <div style={{color:"#9898b8",fontSize:10,letterSpacing:.12em,textTransform:"uppercase",marginBottom:14,fontWeight:600}}>
+            WIN RATE WG GODZINY UTC
+          </div>
+          <div style={{display:"flex",alignItems:"flex-end",gap:3,height:80,marginBottom:8}}>
+            {hourStats.map(h => {
+              const c = h.wr>=55?"#00e676":h.wr>=40?"#ffd740":"#ff5252";
+              return (
+                <div key={h.hour} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
+                  <div style={{width:"100%",background:c+"40",borderRadius:"2px 2px 0 0",
+                    height:`${h.wr*0.7}%`,minHeight:2,border:`1px solid ${c}`,
+                    position:"relative"}} title={`${h.hour}: ${h.wr}% (${h.total} tradów)`}/>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:"#5c6494",fontFamily:"monospace"}}>
+            <span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>23:00</span>
+          </div>
+          {bestHour&&<div style={{marginTop:8,fontSize:11,color:"#9898b8"}}>
+            Szczyt: <span style={{color:"#00e676",fontFamily:"monospace"}}>{bestHour.hour} UTC ({bestHour.wr}% WR)</span>
+            {" · "}Dno: <span style={{color:"#ff5252",fontFamily:"monospace"}}>{worstHour.hour} UTC ({worstHour.wr}% WR)</span>
+          </div>}
+        </div>
+      </div>
+
+      {/* Ranking kanałów */}
+      <div style={{background:"#1c2030",border:"1px solid #2e3350",borderRadius:10,padding:"16px 20px"}}>
+        <div style={{color:"#9898b8",fontSize:10,letterSpacing:.12em,textTransform:"uppercase",marginBottom:14,fontWeight:600}}>
+          RANKING KANAŁÓW (min. 2 trady)
+        </div>
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",fontFamily:"monospace",fontSize:12}}>
+            <thead>
+              <tr style={{borderBottom:"1px solid #2e3350"}}>
+                {["#","Kanał","Trades","Win Rate","Śr. P&L","Najlepszy","Najgorszy","Ocena"].map(h=>(
+                  <th key={h} style={{color:"#9898b8",fontSize:10,padding:"6px 10px",textAlign:"left",
+                    textTransform:"uppercase",letterSpacing:.08em,whiteSpace:"nowrap"}}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {chStats.map((c,i) => {
+                const wrColor = c.wr>=55?"#00e676":c.wr>=40?"#ffd740":"#ff5252";
+                const bestT = [...(byChannel[c.ch]||[])].sort((a,b)=>(b.realized_pnl||0)-(a.realized_pnl||0))[0];
+                const worstT = [...(byChannel[c.ch]||[])].sort((a,b)=>(a.realized_pnl||0)-(b.realized_pnl||0))[0];
+                return (
+                  <tr key={c.ch} style={{borderBottom:"1px solid rgba(46,51,80,.4)"}}>
+                    <td style={{padding:"7px 10px",color:"#5c6494"}}>{i+1}</td>
+                    <td style={{padding:"7px 10px",color:"#e8eaf6",fontWeight:700}}>{c.name}</td>
+                    <td style={{padding:"7px 10px",color:"#9898b8"}}>{c.total}</td>
+                    <td style={{padding:"7px 10px"}}>
+                      <div style={{display:"flex",alignItems:"center",gap:6}}>
+                        <div style={{width:50,background:"#0d0f17",borderRadius:3,height:8,overflow:"hidden"}}>
+                          <div style={{width:`${c.wr}%`,height:"100%",background:wrColor,borderRadius:3}}/>
+                        </div>
+                        <span style={{color:wrColor,fontWeight:700}}>{c.wr}%</span>
+                      </div>
+                    </td>
+                    <td style={{padding:"7px 10px",color:c.avg>=0?"#00e676":"#ff5252",fontWeight:600}}>
+                      {c.avg>=0?"+":""}{c.avg.toFixed(2)}$
+                    </td>
+                    <td style={{padding:"7px 10px",color:"#00e676"}}>
+                      +${(bestT?.realized_pnl||0).toFixed(2)}
+                    </td>
+                    <td style={{padding:"7px 10px",color:"#ff5252"}}>
+                      ${(worstT?.realized_pnl||0).toFixed(2)}
+                    </td>
+                    <td style={{padding:"7px 10px"}}>
+                      <span style={{
+                        background:c.wr>=55&&c.avg>0?"rgba(0,230,118,.15)":c.wr<40||c.avg<0?"rgba(255,82,82,.15)":"rgba(255,215,64,.15)",
+                        color:c.wr>=55&&c.avg>0?"#00e676":c.wr<40||c.avg<0?"#ff5252":"#ffd740",
+                        border:`1px solid ${c.wr>=55&&c.avg>0?"rgba(0,230,118,.3)":c.wr<40||c.avg<0?"rgba(255,82,82,.3)":"rgba(255,215,64,.3)"}`,
+                        borderRadius:4,padding:"2px 8px",fontSize:10,fontWeight:700
+                      }}>
+                        {c.wr>=55&&c.avg>0?"✓ Kopiuj":c.wr<40||c.avg<0?"✕ Pomiń":"~ Obserwuj"}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Serie strat */}
+      <div style={{background:"#1c2030",border:"1px solid #2e3350",borderRadius:10,padding:"16px 20px"}}>
+        <div style={{color:"#9898b8",fontSize:10,letterSpacing:.12em,textTransform:"uppercase",marginBottom:14,fontWeight:600}}>
+          PSYCHOLOGIA STRAT
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:16}}>
+          {[
+            {l:"Maks. seria strat",v:maxStreak,c:maxStreak>=4?"#ff5252":maxStreak>=2?"#ffd740":"#00e676",s:"z rzędu"},
+            {l:"P(strata po stracie)",v:`${pAfterLoss}%`,c:pAfterLoss>55?"#ff5252":pAfterLoss>45?"#ffd740":"#00e676",s:`na ${totalAfterLoss} przypadkach`},
+            {l:"Weekendy vs weekdays",v:`${wr(weekends)}% vs ${wr(weekdays)}%`,c:wr(weekends)<wr(weekdays)-10?"#ffd740":"#00e676",s:"win rate"},
+            {l:"Łączne straty $",v:`$${losses.reduce((s,p)=>s+(p.realized_pnl||0),0).toFixed(2)}`,c:"#ff5252",s:`${losses.length} przegranych tradów`},
+          ].map(s=>(
+            <div key={s.l} style={{background:"#0d0f17",borderRadius:8,padding:"12px 14px"}}>
+              <div style={{color:"#9898b8",fontSize:10,marginBottom:6}}>{s.l}</div>
+              <div style={{color:s.c,fontFamily:"monospace",fontSize:18,fontWeight:700}}>{s.v}</div>
+              <div style={{color:"#5c6494",fontSize:10,marginTop:3}}>{s.s}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+    </div>
+  );
+}
+
 // ─── Tab Bar ───────────────────────────────────────────────────────────────────
 const TABS=[
   {id:"portfolio",label:"📊 Portfolio"},
@@ -885,6 +1329,7 @@ const TABS=[
   {id:"signals",label:"📡 Sygnały"},
   {id:"log",label:"📝 Log"},
   {id:"debug",label:"🔧 Debug"},
+  {id:"intelligence",label:"🧠 Intelligence"},
 ];
 
 function TabBar({active,onChange}){
@@ -1091,6 +1536,8 @@ export default function App(){
         </Card>}
 
         {tab==="debug"&&<BotHealthDashboard health={health} channelNames={channelNames} openPos={openPos}/>}
+
+        {tab==="intelligence"&&<ForensicLossAnalysis positions={closedPos} channelNames={channelNames}/>}
       </div>
     </div>
   );
