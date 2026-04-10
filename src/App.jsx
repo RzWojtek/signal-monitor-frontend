@@ -60,37 +60,6 @@ async function closePositionManually(positionId, currentPrice) {
       message:`Manual close @ ${currentPrice} | PnL: $${totalPnl}`,
       timestamp_iso:now,
     });
-
-    // BUG 7 FIX: Aktualizuj channel_stats przy ręcznym zamknięciu
-    try {
-      const bare = String(pos.channel||"").replace(/^-100/,"").replace(/[-/.]/g,"_");
-      if (bare) {
-        const statsRef = doc(db,"channel_stats",bare);
-        const statsSnap = await getDoc(statsRef);
-        const stats = statsSnap.exists() ? statsSnap.data() : {
-          channel: pos.channel||"?", total_trades:0, wins:0, losses:0,
-          total_pnl:0, best_trade:0, worst_trade:0, sl_hits:0, tp_hits:0,
-        };
-        const newTotal = (stats.total_trades||0)+1;
-        const newPnl = round2((stats.total_pnl||0)+totalPnl);
-        const newWins = pnl>=0 ? (stats.wins||0)+1 : (stats.wins||0);
-        const newLosses = pnl<0 ? (stats.losses||0)+1 : (stats.losses||0);
-        await setDoc(statsRef,{
-          ...stats,
-          total_trades: newTotal,
-          total_pnl: newPnl,
-          wins: newWins,
-          losses: newLosses,
-          win_rate: round2((newWins/newTotal)*100),
-          avg_pnl: round2(newPnl/newTotal),
-          best_trade: Math.max(stats.best_trade||0, totalPnl),
-          worst_trade: Math.min(stats.worst_trade||0, totalPnl),
-          updated_at: now,
-        },{merge:true});
-      }
-    } catch(statsErr) {
-      console.warn("channel_stats update failed:", statsErr);
-    }
   } catch(e) {
     alert("Błąd zamykania: " + e.message);
   }
@@ -822,14 +791,18 @@ function BotHealthDashboard({health, channelNames, openPos}) {
         </div>
         {health.channels&&Object.entries(health.channels).map(([id,ch])=>{
           const name = channelNames[id]||ch.name||id;
-          const lastMsg = ch.last_message
-            ? Math.floor((Date.now()-new Date(ch.last_message))/1000) : null;
+          const lastMsg = ch.last_message ? (() => {
+            try {
+              const d = ch.last_message.toDate ? ch.last_message.toDate() : new Date(ch.last_message);
+              return Math.floor((Date.now()-d.getTime())/1000);
+            } catch(e) { return null; }
+          })() : null;
           const lastMsgStr = lastMsg!=null
             ? lastMsg<60?`${lastMsg}s temu`
               :lastMsg<3600?`${Math.floor(lastMsg/60)}m temu`
               :`${Math.floor(lastMsg/3600)}h temu`
             : "brak wiadomości";
-          const isSilent = lastMsg!=null && lastMsg>21600;
+          const isSilent = lastMsg!=null && lastMsg>43200; // 12h zamiast 6h
           return (
             <div key={id} style={{padding:"10px 12px",borderBottom:`1px solid #5c5c7a22`}}>
               <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:4}}>
@@ -998,9 +971,14 @@ export default function App(){
     const q=query(collection(db,"simulation_positions"),orderBy("opened_at","desc"),limit(100));
     return onSnapshot(q,snap=>{
       const all=snap.docs.map(d=>({id:d.id,...d.data()}));
-      // Use functional updates to avoid triggering child re-renders unnecessarily
       setOpenPos(all.filter(p=>p.status==="OPEN"));
-      setClosedPos(all.filter(p=>p.status==="CLOSED"));
+      // Zamknięte sortuj po closed_at desc (najnowsze pierwsze)
+      const closed = all.filter(p=>p.status==="CLOSED").sort((a,b)=>{
+        const ta = a.closed_at ? new Date(a.closed_at).getTime() : 0;
+        const tb = b.closed_at ? new Date(b.closed_at).getTime() : 0;
+        return tb - ta;
+      });
+      setClosedPos(closed);
     });
   },[]);
 
@@ -1016,7 +994,18 @@ export default function App(){
 
   useEffect(()=>{
     return onSnapshot(collection(db,"channel_stats"),snap=>{
-      setChannelStats(snap.docs.map(d=>({id:d.id,...d.data()})));
+      // Deduplikuj — Firebase może mieć docs z ID "1700533698" i "-1001700533698"
+      const all = snap.docs.map(d=>({id:d.id,...d.data()}));
+      const seen = new Map();
+      all.forEach(ch => {
+        const bare = String(ch.channel||ch.id||"").replace(/^-100/,"");
+        const existing = seen.get(bare);
+        // Zostaw ten z większą liczbą tradów
+        if (!existing || (ch.total_trades||0) > (existing.total_trades||0)) {
+          seen.set(bare, ch);
+        }
+      });
+      setChannelStats(Array.from(seen.values()));
     });
   },[]);
 
