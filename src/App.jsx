@@ -1867,7 +1867,7 @@ function IntelligenceDashboard({closedPos, channelNames, marketRegime, aiMentor,
 function ShadowPortfolioDashboard({portfolios, positions, realPortfolio}) {
   const STRATEGY_META = {
     conservative: {name:"🛡️ Konserwatywna", color:"#82b1ff", desc:"1% ryzyko · max dźwignia 20x · tylko kanały z WR >50%"},
-    current:      {name:"⚖️ Obecna (3%)",   color:"#00e5ff", desc:"Mirror Twojego bota · 3% ryzyko · wszystkie kanały"},
+    current:      {name:"⚖️ Obecna (3%)",   color:"#00e5ff", desc:"Mirror starej strategii · 3% ryzyko · wszystkie kanały"},
     aggressive:   {name:"🚀 Agresywna",     color:"#ff9f43", desc:"5% ryzyko · wszystkie kanały · pełna dźwignia"},
     breakeven:    {name:"🔒 Break-Even",    color:"#ce93d8", desc:"5% ryzyko · SL → cena wejścia po TP1 · agresywna z ochroną BE"},
     front_loaded: {name:"💰 Front-Loaded",  color:"#69f0ae", desc:"3% ryzyko · TP1=40% · TP2=35% · TP3=25% · malejąca realizacja zysku"},
@@ -1906,7 +1906,7 @@ function ShadowPortfolioDashboard({portfolios, positions, realPortfolio}) {
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
           <div>
             <div style={{color:"#00e5ff",fontFamily:"monospace",fontSize:13,fontWeight:700}}>📊 Twój portfel (aktywny)</div>
-            <div style={{color:"#5c6494",fontSize:10,marginTop:2}}>3% ryzyko · rzeczywiste transakcje</div>
+            <div style={{color:"#5c6494",fontSize:10,marginTop:2}}>{real.risk_pct||4}% ryzyko · rzeczywiste transakcje</div>
           </div>
           <div style={{display:"flex",gap:16,flexWrap:"wrap"}}>
             <div style={{textAlign:"center"}}>
@@ -2683,7 +2683,7 @@ export default function App(){
         <span style={{fontSize:18}}>📡</span>
         <div>
           <span style={{color:"#fff",fontWeight:800,fontSize:14,letterSpacing:2}}>SIGNAL MONITOR</span>
-          <span style={{color:"#9898b8",fontSize:11,marginLeft:12}}>Telegram → Firebase · $200 · 4% / trade · slippage 0.5%</span>
+          <span style={{color:"#9898b8",fontSize:11,marginLeft:12}}>Telegram → Firebase · ${portfolio?.initial_capital||200} · {portfolio?.risk_pct||4}% / trade</span>
         </div>
         <div style={{marginLeft:"auto",display:"flex",gap:16,fontSize:11,fontFamily:"monospace"}}>
           <span style={{color:"#b8b8d0"}}>Otwarte: <span style={{color:GREEN}}>{openPos.length}</span></span>
