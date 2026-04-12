@@ -2243,6 +2243,243 @@ function RiskPanel({portfolio, openPos}) {
   );
 }
 
+
+// ─── 🧠 AI MENTOR WIDGET ─────────────────────────────────────────────────────
+function AiMentorWidget({mentor}) {
+  if (!mentor) return (
+    <div style={{background:"#1c2030",border:"1px solid #2e3350",borderRadius:10,
+      padding:40,textAlign:"center",color:"#9898b8",fontSize:13,fontFamily:"monospace"}}>
+      ⏳ Brak analizy AI Mentora<br/>
+      <span style={{fontSize:10,color:"#5c6494",display:"block",marginTop:8}}>
+        Uruchom: <code style={{color:"#00e5ff"}}>python3 ai_mentor.py</code>
+      </span>
+    </div>
+  );
+  if (mentor.status === "insufficient_data") return (
+    <div style={{background:"#1c2030",border:"1px solid #2e3350",borderRadius:10,
+      padding:30,textAlign:"center",color:"#9898b8",fontSize:13}}>
+      📊 {mentor.message}
+    </div>
+  );
+  if (mentor.status === "error") return (
+    <div style={{background:"rgba(255,82,82,.08)",border:"1px solid rgba(255,82,82,.3)",
+      borderRadius:10,padding:20,color:"#ff5252",fontSize:12}}>
+      ❌ Błąd AI: {mentor.error}
+    </div>
+  );
+
+  const a = mentor.analysis || {};
+  const score = a.score || 0;
+  const scoreColor = score>=70?"#00e676":score>=50?"#ffd740":"#ff5252";
+  const updatedAt = mentor.updated_at ? new Date(mentor.updated_at).toLocaleString("pl-PL") : "—";
+  const priorityColor = p => p==="HIGH"?"#ff5252":p==="MEDIUM"?"#ffd740":"#82b1ff";
+  const priorityBg    = p => p==="HIGH"?"rgba(255,82,82,.1)":p==="MEDIUM"?"rgba(255,215,64,.1)":"rgba(130,177,255,.1)";
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:16}}>
+      <div style={{background:"#1c2030",border:`2px solid ${scoreColor}44`,borderRadius:12,padding:"20px 24px"}}>
+        <div style={{display:"flex",alignItems:"center",gap:16,flexWrap:"wrap"}}>
+          <div style={{textAlign:"center",minWidth:80}}>
+            <div style={{width:70,height:70,borderRadius:"50%",margin:"0 auto",
+              background:`conic-gradient(${scoreColor} ${score}%, #2e3350 ${score}%)`,
+              display:"flex",alignItems:"center",justifyContent:"center"}}>
+              <div style={{width:54,height:54,borderRadius:"50%",background:"#1c2030",
+                display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column"}}>
+                <span style={{color:scoreColor,fontFamily:"monospace",fontSize:18,fontWeight:800}}>{score}</span>
+                <span style={{color:"#5c6494",fontSize:8}}>/100</span>
+              </div>
+            </div>
+            <div style={{color:"#5c6494",fontSize:9,marginTop:4}}>Trading score</div>
+          </div>
+          <div style={{flex:1}}>
+            <div style={{color:"#e8eaf6",fontSize:13,lineHeight:1.6,marginBottom:6}}>{a.overall_assessment||"Brak oceny"}</div>
+            <div style={{color:"#5c6494",fontSize:10}}>Analiza {mentor.positions_count||0} pozycji · {updatedAt}</div>
+          </div>
+        </div>
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+        <div style={{background:"#1c2030",border:"1px solid #2e3350",borderRadius:10,padding:"16px 20px"}}>
+          <div style={{color:"#9898b8",fontSize:10,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:14,fontWeight:600}}>
+            💡 Kluczowe wnioski
+          </div>
+          {(a.key_insights||[]).map((insight,i)=>(
+            <div key={i} style={{display:"flex",gap:10,padding:"8px 0",borderBottom:"1px solid rgba(46,51,80,.4)"}}>
+              <span style={{color:"#00e5ff",flexShrink:0}}>→</span>
+              <span style={{color:"#b8b8d0",fontSize:12,lineHeight:1.5}}>{insight}</span>
+            </div>
+          ))}
+        </div>
+        <div style={{background:"#1c2030",border:"1px solid rgba(255,82,82,.2)",borderRadius:10,padding:"16px 20px"}}>
+          <div style={{color:"#ff5252",fontSize:10,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:14,fontWeight:600}}>
+            ⚠️ Błędy krytyczne
+          </div>
+          {(a.critical_mistakes||[]).map((m,i)=>(
+            <div key={i} style={{display:"flex",gap:10,padding:"8px 0",borderBottom:"1px solid rgba(255,82,82,.15)"}}>
+              <span style={{color:"#ff5252",flexShrink:0}}>✕</span>
+              <span style={{color:"#b8b8d0",fontSize:12,lineHeight:1.5}}>{m}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={{background:"#1c2030",border:"1px solid #2e3350",borderRadius:10,padding:"16px 20px"}}>
+        <div style={{color:"#9898b8",fontSize:10,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:14,fontWeight:600}}>
+          🎯 Plan działania
+        </div>
+        {(a.action_plan||[]).map((item,i)=>(
+          <div key={i} style={{background:priorityBg(item.priority),
+            border:`1px solid ${priorityColor(item.priority)}33`,
+            borderLeft:`3px solid ${priorityColor(item.priority)}`,
+            borderRadius:8,padding:"12px 16px",marginBottom:10}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+              <span style={{background:priorityColor(item.priority)+"22",color:priorityColor(item.priority),
+                fontSize:9,fontWeight:700,padding:"2px 7px",borderRadius:4,fontFamily:"monospace"}}>
+                {item.priority}
+              </span>
+              <span style={{color:"#e8eaf6",fontSize:13,fontWeight:600}}>{item.action}</span>
+            </div>
+            <div style={{color:"#9898b8",fontSize:11,lineHeight:1.5}}>{item.reason}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12}}>
+        {[
+          {l:"✓ Najlepszy setup",  v:a.best_setup,      c:"rgba(0,230,118,.06)",  bc:"rgba(0,230,118,.2)",  tc:"#00e676"},
+          {l:"✕ Unikaj",          v:a.worst_pattern,   c:"rgba(255,82,82,.06)",  bc:"rgba(255,82,82,.2)",  tc:"#ff5252"},
+          {l:"🎯 Cel na tydzień", v:a.next_week_focus, c:"rgba(255,215,64,.06)", bc:"rgba(255,215,64,.2)", tc:"#ffd740"},
+        ].map(s=>(
+          <div key={s.l} style={{background:s.c,border:`1px solid ${s.bc}`,borderRadius:10,padding:"14px 16px"}}>
+            <div style={{color:s.tc,fontSize:10,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:8,fontWeight:600}}>{s.l}</div>
+            <div style={{color:"#b8b8d0",fontSize:12,lineHeight:1.6}}>{s.v||"—"}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── 🤖 STRATEGY EVOLUTION WIDGET ────────────────────────────────────────────
+function StrategyEvolutionWidget({evolution}) {
+  const [showAll, setShowAll] = useState(false);
+  if (!evolution) return (
+    <div style={{background:"#1c2030",border:"1px solid #2e3350",borderRadius:10,
+      padding:40,textAlign:"center",color:"#9898b8",fontSize:13,fontFamily:"monospace"}}>
+      ⏳ Brak wyników ewolucji<br/>
+      <span style={{fontSize:10,color:"#5c6494",display:"block",marginTop:8}}>
+        Uruchom: <code style={{color:"#00e5ff"}}>python3 strategy_evolution.py</code>
+      </span>
+    </div>
+  );
+  if (evolution.status === "insufficient_data") return (
+    <div style={{background:"#1c2030",border:"1px solid #2e3350",borderRadius:10,
+      padding:30,textAlign:"center",color:"#9898b8",fontSize:13}}>
+      📊 {evolution.message}
+    </div>
+  );
+
+  const best     = evolution.best_strategy || {};
+  const baseline = evolution.baseline || {};
+  const top10    = evolution.top10 || [];
+  const summary  = evolution.summary || {};
+  const updatedAt = evolution.updated_at ? new Date(evolution.updated_at).toLocaleString("pl-PL") : "—";
+  const improvement = summary.improvement || 0;
+  const improvColor = improvement > 0 ? "#00e676" : "#ff5252";
+
+  const ParamBadge = ({label, val}) => (
+    <span style={{background:"rgba(0,229,255,.1)",color:"#00e5ff",fontSize:10,
+      padding:"2px 8px",borderRadius:4,fontFamily:"monospace",marginRight:6,
+      marginBottom:4,display:"inline-block"}}>
+      {label}: {val}
+    </span>
+  );
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:16}}>
+      <div style={{background:"#1c2030",border:`2px solid ${improvColor}44`,borderRadius:12,padding:"20px 24px"}}>
+        <div style={{display:"flex",alignItems:"flex-start",gap:16,flexWrap:"wrap"}}>
+          <div style={{flex:1}}>
+            <div style={{color:"#9898b8",fontSize:10,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:8,fontWeight:600}}>
+              🤖 Optymalna strategia
+            </div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:10}}>
+              <ParamBadge label="Ryzyko" val={`${best.params?.risk_pct}%`}/>
+              <ParamBadge label="Max lev" val={best.params?.max_leverage}/>
+              <ParamBadge label="Min WR" val={best.params?.min_channel_wr}/>
+              <ParamBadge label="Kierunek" val={best.params?.direction}/>
+              <ParamBadge label="Godziny" val={best.params?.exclude_hours}/>
+            </div>
+            <div style={{color:"#5c6494",fontSize:10}}>{evolution.combinations_tested} kombinacji · {evolution.positions_analyzed} pozycji · {updatedAt}</div>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            {[
+              {l:"ROI optymalny",    v:`${best.roi_pct}%`,       c:best.roi_pct>=0?"#00e676":"#ff5252"},
+              {l:"ROI baseline",     v:`${baseline.roi_pct||0}%`,c:(baseline.roi_pct||0)>=0?"#00e676":"#ff5252"},
+              {l:"Poprawa",          v:`${improvement>=0?"+":""}${improvement}%`, c:improvColor},
+              {l:"WR optymalny",     v:`${best.win_rate}%`,      c:best.win_rate>=55?"#00e676":"#ffd740"},
+            ].map(s=>(
+              <div key={s.l} style={{background:"#0d0f17",borderRadius:8,padding:"8px 12px",textAlign:"center"}}>
+                <div style={{color:s.c,fontFamily:"monospace",fontSize:16,fontWeight:800}}>{s.v}</div>
+                <div style={{color:"#5c6494",fontSize:9,marginTop:2}}>{s.l}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div style={{background:"#1c2030",border:"1px solid #2e3350",borderRadius:10,overflow:"hidden"}}>
+        <div style={{padding:"12px 18px",borderBottom:"1px solid #2e3350",
+          display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div style={{color:"#9898b8",fontSize:10,letterSpacing:"0.1em",textTransform:"uppercase",fontWeight:600}}>
+            Top {showAll?top10.length:5} strategii
+          </div>
+          <button onClick={()=>setShowAll(p=>!p)} style={{
+            background:"transparent",border:"1px solid #2e3350",color:"#9898b8",
+            fontSize:10,padding:"4px 10px",borderRadius:4,cursor:"pointer",fontFamily:"monospace"}}>
+            {showAll?"Mniej":"Wszystkie 10"}
+          </button>
+        </div>
+        <div style={{overflowX:"auto",WebkitOverflowScrolling:"touch"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",fontFamily:"monospace",fontSize:11,minWidth:500}}>
+            <thead>
+              <tr style={{borderBottom:"1px solid #2e3350",background:"#141720"}}>
+                {["#","Ryzyko","Max lev","Min WR","Kierunek","ROI","WR","Trades","Max DD"].map(h=>(
+                  <th key={h} style={{color:"#5c6494",fontSize:9,padding:"7px 8px",
+                    textAlign:"left",textTransform:"uppercase",whiteSpace:"nowrap"}}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {top10.slice(0,showAll?10:5).map((r,i)=>(
+                <tr key={i} style={{borderBottom:"1px solid rgba(46,51,80,.3)",
+                  background:i===0?"rgba(0,230,118,.04)":"transparent"}}>
+                  <td style={{padding:"6px 8px",color:i===0?"#00e676":"#5c6494",fontWeight:i===0?700:400}}>
+                    {i===0?"🏆":i+1}
+                  </td>
+                  <td style={{padding:"6px 8px",color:"#e8eaf6"}}>{r.params?.risk_pct}%</td>
+                  <td style={{padding:"6px 8px",color:"#9898b8"}}>{r.params?.max_leverage}</td>
+                  <td style={{padding:"6px 8px",color:"#9898b8"}}>{r.params?.min_channel_wr}</td>
+                  <td style={{padding:"6px 8px",color:"#9898b8"}}>{r.params?.direction}</td>
+                  <td style={{padding:"6px 8px",fontWeight:700,color:r.roi_pct>=0?"#00e676":"#ff5252"}}>{r.roi_pct}%</td>
+                  <td style={{padding:"6px 8px",color:r.win_rate>=55?"#00e676":r.win_rate>=40?"#ffd740":"#ff5252"}}>{r.win_rate}%</td>
+                  <td style={{padding:"6px 8px",color:"#9898b8"}}>{r.trades_taken}</td>
+                  <td style={{padding:"6px 8px",color:r.max_drawdown>20?"#ff5252":"#9898b8"}}>{r.max_drawdown}%</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div style={{background:"#141720",border:"1px solid #2e3350",borderRadius:8,
+        padding:"10px 14px",fontSize:11,color:"#5c6494",lineHeight:1.6}}>
+        ⚠️ Wyniki historyczne — nie gwarantują przyszłych zysków. Bot nie zmienia parametrów automatycznie.
+      </div>
+    </div>
+  );
+}
+
 // ─── Tab Bar ───────────────────────────────────────────────────────────────────
 const TABS=[
   {id:"portfolio",label:"📊 Portfolio"},
