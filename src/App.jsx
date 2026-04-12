@@ -1832,16 +1832,17 @@ function MarketRegimeWidget({regime}) {
 }
 
 // ─── 🧠 INTELLIGENCE DASHBOARD — łączy Forensic + Market Regime ───────────────
-function IntelligenceDashboard({closedPos, channelNames, marketRegime}) {
+function IntelligenceDashboard({closedPos, channelNames, marketRegime, aiMentor, strategyEvolution}) {
   const [activeSection, setActiveSection] = useState("regime");
   const sections = [
-    {id:"regime",   label:"🌊 Market Regime"},
-    {id:"forensic", label:"🔬 Anatomia Przegranej"},
+    {id:"regime",    label:"🌊 Market Regime"},
+    {id:"mentor",    label:"🧠 AI Mentor"},
+    {id:"evolution", label:"🤖 Strategy Evolution"},
+    {id:"forensic",  label:"🔬 Anatomia Przegranej"},
   ];
   return (
     <div>
-      {/* Sub-nav */}
-      <div style={{display:"flex",gap:8,marginBottom:20,borderBottom:"1px solid #2e3350",paddingBottom:12}}>
+      <div style={{display:"flex",gap:8,marginBottom:20,borderBottom:"1px solid #2e3350",paddingBottom:12,flexWrap:"wrap"}}>
         {sections.map(s=>(
           <button key={s.id} onClick={()=>setActiveSection(s.id)} style={{
             background:activeSection===s.id?"rgba(0,229,255,.1)":"transparent",
@@ -1853,8 +1854,10 @@ function IntelligenceDashboard({closedPos, channelNames, marketRegime}) {
           }}>{s.label}</button>
         ))}
       </div>
-      {activeSection==="regime"   && <MarketRegimeWidget regime={marketRegime}/>}
-      {activeSection==="forensic" && <ForensicLossAnalysis positions={closedPos} channelNames={channelNames}/>}
+      {activeSection==="regime"    && <MarketRegimeWidget regime={marketRegime}/>}
+      {activeSection==="mentor"    && <AiMentorWidget mentor={aiMentor}/>}
+      {activeSection==="evolution" && <StrategyEvolutionWidget evolution={strategyEvolution}/>}
+      {activeSection==="forensic"  && <ForensicLossAnalysis positions={closedPos} channelNames={channelNames}/>}
     </div>
   );
 }
@@ -1863,217 +1866,227 @@ function IntelligenceDashboard({closedPos, channelNames, marketRegime}) {
 // ─── 👥 SHADOW PORTFOLIO DASHBOARD ────────────────────────────────────────────
 function ShadowPortfolioDashboard({portfolios, positions, realPortfolio}) {
   const STRATEGY_META = {
-    conservative: {name:"🛡️ Konserwatywna", color:"#82b1ff", desc:"1% ryzyko · max 20x · kanały >50% WR"},
-    current:      {name:"⚖️ Obecna (3%)",    color:"#00e5ff", desc:"3% ryzyko · wszystkie kanały"},
-    aggressive:   {name:"🚀 Agresywna",      color:"#ff9f43", desc:"5% ryzyko · wszystkie kanały"},
+    conservative: {name:"🛡️ Konserwatywna", color:"#82b1ff", desc:"1% ryzyko · max dźwignia 20x · tylko kanały z WR >50%"},
+    current:      {name:"⚖️ Obecna (3%)",   color:"#00e5ff", desc:"Mirror Twojego bota · 3% ryzyko · wszystkie kanały"},
+    aggressive:   {name:"🚀 Agresywna",     color:"#ff9f43", desc:"5% ryzyko · wszystkie kanały · pełna dźwignia"},
+    breakeven:    {name:"🔒 Break-Even",    color:"#ce93d8", desc:"5% ryzyko · SL → cena wejścia po TP1 · agresywna z ochroną BE"},
+    front_loaded: {name:"💰 Front-Loaded",  color:"#69f0ae", desc:"3% ryzyko · TP1=40% · TP2=35% · TP3=25% · malejąca realizacja zysku"},
+    sniper:       {name:"🎯 Sniper",        color:"#ffd740", desc:"2% ryzyko · max 30x · kanały WR >55% · BE po TP1 · jakość > ilość"},
   };
 
   const [activeStrategy, setActiveStrategy] = useState(null);
 
   if (!portfolios.length) return (
-    <div style={{color:"#9898b8",padding:40,textAlign:"center",fontSize:13,fontFamily:"monospace"}}>
+    <div style={{color:"#9898b8",padding:32,textAlign:"center",fontSize:13,fontFamily:"monospace"}}>
       ⏳ Oczekiwanie na dane...<br/>
-      <span style={{fontSize:10,color:"#5c6494"}}>shadow_portfolio.py musi być uruchomiony na VPS</span>
+      <span style={{fontSize:10,color:"#5c6494",display:"block",marginTop:8}}>
+        shadow_portfolio.py musi być uruchomiony na VPS
+      </span>
     </div>
   );
 
-  const fmt = (n,d=2) => n!=null ? (Number(n)>=0?"+":"")+Number(n).toFixed(d) : "—";
-  const fmtK = n => n!=null ? `$${Number(n).toFixed(2)}` : "—";
-  const wr = p => {
-    const t = (p.wins||0)+(p.losses||0);
-    return t>0 ? Math.round((p.wins||0)/t*100) : 0;
-  };
+  const fmt  = (n,d=2) => n!=null?(Number(n)>=0?"+":"")+Number(n).toFixed(d):"—";
+  const wr   = p => { const t=(p.wins||0)+(p.losses||0); return t>0?Math.round((p.wins||0)/t*100):0; };
 
-  // Połącz z metadanymi
-  const enriched = portfolios.map(p => ({
-    ...p,
-    meta: STRATEGY_META[p.strategy_id] || {name:p.strategy_id,color:"#9898b8",desc:""},
-  })).sort((a,b) => (b.total_pnl||0) - (a.total_pnl||0));
+  const enriched = portfolios
+    .map(p=>({...p, meta: STRATEGY_META[p.strategy_id]||{name:p.strategy_id,color:"#9898b8",desc:""}}))
+    .sort((a,b)=>(b.total_pnl||0)-(a.total_pnl||0));
 
-  // Real portfolio jako obiekt do porównania
-  const real = realPortfolio || {};
+  const real    = realPortfolio || {};
   const realPnl = real.total_pnl || 0;
-  const realCap = real.current_capital || 500;
 
-  const selPortfolio = activeStrategy
-    ? enriched.find(p=>p.strategy_id===activeStrategy)
-    : null;
-  const selPositions = activeStrategy
-    ? positions.filter(p=>p.strategy_id===activeStrategy)
-    : [];
+  const selPortfolio = activeStrategy ? enriched.find(p=>p.strategy_id===activeStrategy) : null;
+  const selPositions = activeStrategy ? positions.filter(p=>p.strategy_id===activeStrategy) : [];
 
   return (
-    <div style={{display:"flex",flexDirection:"column",gap:16}}>
+    <div style={{display:"flex",flexDirection:"column",gap:14}}>
 
-      {/* Header — porównanie 3 shadow + real */}
-      <div style={{background:"#1c2030",border:"1px solid #2e3350",borderRadius:12,padding:"18px 22px"}}>
-        <div style={{color:"#9898b8",fontSize:10,letterSpacing:"0.12em",
-          textTransform:"uppercase",marginBottom:16,fontWeight:600}}>
-          Porównanie strategii — kapitał startowy $500
-        </div>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12}}>
-
-          {/* Real portfolio */}
-          <div style={{background:"#242840",borderRadius:10,padding:"14px 16px",
-            border:"2px solid rgba(0,229,255,.3)"}}>
-            <div style={{fontSize:11,color:"#00e5ff",fontWeight:700,marginBottom:8,fontFamily:"monospace"}}>
-              📊 Twój portfel
+      {/* Twój portfel — zawsze na górze */}
+      <div style={{background:"#1c2030",border:"2px solid rgba(0,229,255,.3)",borderRadius:12,padding:"14px 16px"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+          <div>
+            <div style={{color:"#00e5ff",fontFamily:"monospace",fontSize:13,fontWeight:700}}>📊 Twój portfel (aktywny)</div>
+            <div style={{color:"#5c6494",fontSize:10,marginTop:2}}>3% ryzyko · rzeczywiste transakcje</div>
+          </div>
+          <div style={{display:"flex",gap:16,flexWrap:"wrap"}}>
+            <div style={{textAlign:"center"}}>
+              <div style={{color:realPnl>=0?"#00e676":"#ff5252",fontFamily:"monospace",fontSize:18,fontWeight:800}}>
+                {fmt(realPnl)}$
+              </div>
+              <div style={{color:"#5c6494",fontSize:10}}>P&L łącznie</div>
             </div>
-            <div style={{color:"#9898b8",fontSize:10,marginBottom:10}}>3% · aktywny</div>
-            <div style={{color:realPnl>=0?"#00e676":"#ff5252",
-              fontFamily:"monospace",fontSize:20,fontWeight:800,marginBottom:4}}>
-              {fmt(realPnl)}$
+            <div style={{textAlign:"center"}}>
+              <div style={{color:"#e8eaf6",fontFamily:"monospace",fontSize:18,fontWeight:700}}>
+                ${(real.current_capital||500).toFixed(0)}
+              </div>
+              <div style={{color:"#5c6494",fontSize:10}}>Kapitał</div>
             </div>
-            <div style={{color:"#9898b8",fontSize:11,fontFamily:"monospace"}}>
-              Kapitał: ${realCap.toFixed(2)}
-            </div>
-            <div style={{display:"flex",gap:8,marginTop:8,fontSize:10}}>
-              <span style={{color:"#00e676"}}>{real.wins||0}W</span>
-              <span style={{color:"#ff5252"}}>{real.losses||0}L</span>
+            <div style={{textAlign:"center"}}>
+              <div style={{color:"#9898b8",fontFamily:"monospace",fontSize:18,fontWeight:700}}>
+                {real.wins||0}W/{real.losses||0}L
+              </div>
+              <div style={{color:"#5c6494",fontSize:10}}>W/L</div>
             </div>
           </div>
-
-          {/* Shadow portfolios */}
-          {enriched.map(p => {
-            const pnl = p.total_pnl || 0;
-            const isSelected = activeStrategy === p.strategy_id;
-            const diff = pnl - realPnl;
-            return (
-              <div key={p.strategy_id}
-                onClick={()=>setActiveStrategy(isSelected ? null : p.strategy_id)}
-                style={{
-                  background: isSelected ? p.meta.color+"15" : "#1a1d2e",
-                  borderRadius:10,padding:"14px 16px",cursor:"pointer",
-                  border: isSelected ? `2px solid ${p.meta.color}` : "1px solid #2e3350",
-                  transition:"all .2s",
-                }}>
-                <div style={{fontSize:11,color:p.meta.color,fontWeight:700,
-                  marginBottom:4,fontFamily:"monospace"}}>
-                  {p.meta.name}
-                </div>
-                <div style={{color:"#5c6494",fontSize:10,marginBottom:10}}>{p.meta.desc}</div>
-                <div style={{color:pnl>=0?"#00e676":"#ff5252",
-                  fontFamily:"monospace",fontSize:20,fontWeight:800,marginBottom:4}}>
-                  {fmt(pnl)}$
-                </div>
-                <div style={{fontSize:11,fontFamily:"monospace",
-                  color:diff>=0?"#00e676":"#ff5252",marginBottom:6}}>
-                  vs real: {diff>=0?"+":""}{diff.toFixed(2)}$
-                </div>
-                <div style={{display:"flex",gap:8,fontSize:10}}>
-                  <span style={{color:"#00e676"}}>{p.wins||0}W</span>
-                  <span style={{color:"#ff5252"}}>{p.losses||0}L</span>
-                  <span style={{color:"#9898b8"}}>{wr(p)}% WR</span>
-                </div>
-                <div style={{color:"#5c6494",fontSize:9,marginTop:6}}>
-                  {isSelected?"▲ kliknij żeby ukryć":"▼ kliknij po szczegóły"}
-                </div>
-              </div>
-            );
-          })}
         </div>
       </div>
 
-      {/* Wykres porównawczy P&L */}
-      <div style={{background:"#1c2030",border:"1px solid #2e3350",borderRadius:10,padding:"16px 20px"}}>
-        <div style={{color:"#9898b8",fontSize:10,letterSpacing:"0.12em",
-          textTransform:"uppercase",marginBottom:14,fontWeight:600}}>
-          P&L porównanie
-        </div>
-        <div style={{display:"flex",flexDirection:"column",gap:10}}>
-          {/* Real */}
-          {[
-            {name:"📊 Twój portfel", pnl:realPnl, color:"#00e5ff", trades:(real.wins||0)+(real.losses||0)},
-            ...enriched.map(p=>({name:p.meta.name, pnl:p.total_pnl||0, color:p.meta.color, trades:(p.wins||0)+(p.losses||0)}))
-          ].map((s,i) => {
-            const allPnls = [realPnl,...enriched.map(p=>p.total_pnl||0)];
-            const maxAbs  = Math.max(...allPnls.map(Math.abs), 1);
-            const barW    = Math.abs(s.pnl) / maxAbs * 45;
-            const isPos   = s.pnl >= 0;
-            return (
-              <div key={i} style={{display:"flex",alignItems:"center",gap:10}}>
-                <div style={{width:150,fontSize:11,color:"#b8b8d0",fontFamily:"monospace",flexShrink:0}}>
-                  {s.name}
-                </div>
-                <div style={{flex:1,display:"flex",alignItems:"center",gap:4}}>
-                  {/* Lewa strona (straty) */}
-                  <div style={{flex:1,display:"flex",justifyContent:"flex-end"}}>
-                    {!isPos && <div style={{
-                      width:`${barW*2}%`,height:18,background:s.color+"80",
-                      borderRadius:"4px 0 0 4px",
-                    }}/>}
+      {/* Karty strategii — responsywna siatka */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:10}}>
+        {enriched.map(p=>{
+          const pnl  = p.total_pnl || 0;
+          const diff = pnl - realPnl;
+          const isSelected = activeStrategy === p.strategy_id;
+          const wrVal = wr(p);
+          const wrColor = wrVal>=55?"#00e676":wrVal>=40?"#ffd740":"#ff5252";
+          return (
+            <div key={p.strategy_id}
+              onClick={()=>setActiveStrategy(isSelected?null:p.strategy_id)}
+              style={{
+                background: isSelected ? p.meta.color+"18" : "#1c2030",
+                borderRadius:10, cursor:"pointer",
+                border: isSelected ? `2px solid ${p.meta.color}` : "1px solid #2e3350",
+                transition:"all .2s", overflow:"hidden",
+              }}>
+              {/* Header karty */}
+              <div style={{padding:"12px 14px",borderBottom:"1px solid rgba(46,51,80,.5)"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{color:p.meta.color,fontWeight:700,fontSize:13,fontFamily:"monospace"}}>
+                      {p.meta.name}
+                    </div>
+                    <div style={{color:"#5c6494",fontSize:10,marginTop:3,lineHeight:1.4}}>
+                      {p.meta.desc}
+                    </div>
                   </div>
-                  {/* Środek */}
-                  <div style={{width:1,height:18,background:"#3d4468",flexShrink:0}}/>
-                  {/* Prawa strona (zyski) */}
-                  <div style={{flex:1}}>
-                    {isPos && <div style={{
-                      width:`${barW*2}%`,height:18,background:s.color,
-                      borderRadius:"0 4px 4px 0",
-                    }}/>}
+                  <div style={{textAlign:"right",flexShrink:0}}>
+                    <div style={{color:pnl>=0?"#00e676":"#ff5252",
+                      fontFamily:"monospace",fontSize:18,fontWeight:800,lineHeight:1}}>
+                      {fmt(pnl)}$
+                    </div>
+                    <div style={{fontSize:10,fontFamily:"monospace",
+                      color:diff>=0?"#00e676":"#ff5252",marginTop:2}}>
+                      vs real: {diff>=0?"+":""}{diff.toFixed(2)}$
+                    </div>
                   </div>
-                </div>
-                <div style={{width:80,fontSize:11,fontFamily:"monospace",
-                  color:isPos?"#00e676":"#ff5252",textAlign:"right",flexShrink:0,fontWeight:700}}>
-                  {fmt(s.pnl)}$
-                </div>
-                <div style={{width:50,fontSize:10,color:"#5c6494",fontFamily:"monospace",flexShrink:0}}>
-                  {s.trades}tr
                 </div>
               </div>
-            );
-          })}
+              {/* Metryki karty */}
+              <div style={{padding:"10px 14px",display:"flex",gap:12,flexWrap:"wrap"}}>
+                <div style={{textAlign:"center"}}>
+                  <div style={{color:wrColor,fontFamily:"monospace",fontSize:14,fontWeight:700}}>{wrVal}%</div>
+                  <div style={{color:"#5c6494",fontSize:9}}>Win Rate</div>
+                </div>
+                <div style={{textAlign:"center"}}>
+                  <div style={{color:"#9898b8",fontFamily:"monospace",fontSize:14}}>{p.total_trades||0}</div>
+                  <div style={{color:"#5c6494",fontSize:9}}>Trades</div>
+                </div>
+                <div style={{textAlign:"center"}}>
+                  <div style={{color:"#00e676",fontFamily:"monospace",fontSize:14}}>{p.wins||0}</div>
+                  <div style={{color:"#5c6494",fontSize:9}}>Wins</div>
+                </div>
+                <div style={{textAlign:"center"}}>
+                  <div style={{color:"#ff5252",fontFamily:"monospace",fontSize:14}}>{p.losses||0}</div>
+                  <div style={{color:"#5c6494",fontSize:9}}>Losses</div>
+                </div>
+                <div style={{marginLeft:"auto",textAlign:"right"}}>
+                  <div style={{color:isSelected?p.meta.color:"#5c6494",fontSize:10}}>
+                    {isSelected?"▲ zwiń":"▼ szczegóły"}
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Wykres porównawczy */}
+      <div style={{background:"#1c2030",border:"1px solid #2e3350",borderRadius:10,padding:"14px 16px"}}>
+        <div style={{color:"#9898b8",fontSize:10,letterSpacing:"0.1em",
+          textTransform:"uppercase",marginBottom:14,fontWeight:600}}>
+          Ranking P&L
         </div>
+        {[
+          {name:"📊 Twój portfel", pnl:realPnl, color:"#00e5ff"},
+          ...enriched.map(p=>({name:p.meta.name, pnl:p.total_pnl||0, color:p.meta.color}))
+        ].sort((a,b)=>b.pnl-a.pnl).map((s,i)=>{
+          const allPnls = [realPnl,...enriched.map(p=>p.total_pnl||0)];
+          const maxAbs  = Math.max(...allPnls.map(Math.abs), 1);
+          const barW    = Math.min(Math.abs(s.pnl)/maxAbs*80, 80);
+          return (
+            <div key={i} style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+              <div style={{width:130,fontSize:10,color:"#b8b8d0",fontFamily:"monospace",
+                flexShrink:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                {s.name}
+              </div>
+              <div style={{flex:1,background:"#0d0f17",borderRadius:3,height:16,overflow:"hidden",position:"relative"}}>
+                <div style={{
+                  position:"absolute",
+                  left: s.pnl>=0?"50%":"auto",
+                  right: s.pnl<0?"50%":"auto",
+                  width:`${barW/2}%`,height:"100%",
+                  background:s.color,borderRadius:3,
+                }}/>
+                <div style={{position:"absolute",left:"50%",top:0,width:1,height:"100%",background:"#3d4468"}}/>
+              </div>
+              <div style={{width:65,fontSize:11,fontFamily:"monospace",
+                color:s.pnl>=0?"#00e676":"#ff5252",textAlign:"right",flexShrink:0,fontWeight:700}}>
+                {fmt(s.pnl)}$
+              </div>
+            </div>
+          );
+        })}
       </div>
 
       {/* Szczegóły wybranej strategii */}
       {selPortfolio && (
         <div style={{background:"#1c2030",border:`1px solid ${selPortfolio.meta.color}44`,
-          borderRadius:10,padding:"16px 20px"}}>
-          <div style={{color:selPortfolio.meta.color,fontSize:12,fontWeight:700,
-            fontFamily:"monospace",marginBottom:14,letterSpacing:"0.06em"}}>
+          borderRadius:10,padding:"14px 16px"}}>
+          <div style={{color:selPortfolio.meta.color,fontSize:13,fontWeight:700,
+            fontFamily:"monospace",marginBottom:12}}>
             {selPortfolio.meta.name} — szczegóły
+          </div>
+          <div style={{color:"#9898b8",fontSize:11,marginBottom:14,lineHeight:1.5}}>
+            {selPortfolio.meta.desc}
           </div>
 
           {/* Metryki */}
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))",
-            gap:12,marginBottom:16}}>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(110px,1fr))",gap:10,marginBottom:14}}>
             {[
-              {l:"Kapitał",v:fmtK(selPortfolio.current_capital),c:"#e8eaf6"},
-              {l:"P&L łącznie",v:fmt(selPortfolio.total_pnl)+"$",c:(selPortfolio.total_pnl||0)>=0?"#00e676":"#ff5252"},
+              {l:"Kapitał",v:`$${(selPortfolio.current_capital||500).toFixed(2)}`,c:"#e8eaf6"},
+              {l:"P&L",v:fmt(selPortfolio.total_pnl)+"$",c:(selPortfolio.total_pnl||0)>=0?"#00e676":"#ff5252"},
               {l:"Win Rate",v:`${wr(selPortfolio)}%`,c:wr(selPortfolio)>=55?"#00e676":wr(selPortfolio)>=40?"#ffd740":"#ff5252"},
-              {l:"Trades",v:selPortfolio.total_trades||0,c:"#9898b8"},
-              {l:"Wins/Losses",v:`${selPortfolio.wins||0}/${selPortfolio.losses||0}`,c:"#9898b8"},
-              {l:"vs Twój portfel",v:fmt((selPortfolio.total_pnl||0)-realPnl)+"$",
+              {l:"vs Twój bot",v:fmt((selPortfolio.total_pnl||0)-realPnl)+"$",
                 c:((selPortfolio.total_pnl||0)-realPnl)>=0?"#00e676":"#ff5252"},
             ].map(s=>(
               <div key={s.l} style={{background:"#0d0f17",borderRadius:8,padding:"10px 12px"}}>
                 <div style={{color:"#5c6494",fontSize:10,marginBottom:4}}>{s.l}</div>
-                <div style={{color:s.c,fontFamily:"monospace",fontSize:15,fontWeight:700}}>{s.v}</div>
+                <div style={{color:s.c,fontFamily:"monospace",fontSize:14,fontWeight:700}}>{s.v}</div>
               </div>
             ))}
           </div>
 
-          {/* Otwarte pozycje shadow */}
+          {/* Otwarte pozycje */}
           {selPositions.filter(p=>p.status==="OPEN").length > 0 && (
             <>
               <div style={{color:"#9898b8",fontSize:10,letterSpacing:"0.1em",
                 textTransform:"uppercase",marginBottom:8,fontWeight:600}}>
-                Otwarte pozycje ({selPositions.filter(p=>p.status==="OPEN").length})
+                Otwarte ({selPositions.filter(p=>p.status==="OPEN").length})
               </div>
-              <div style={{overflowX:"auto"}}>
-                <table style={{width:"100%",borderCollapse:"collapse",fontFamily:"monospace",fontSize:11}}>
+              <div style={{overflowX:"auto",WebkitOverflowScrolling:"touch"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",fontFamily:"monospace",
+                  fontSize:11,minWidth:400}}>
                   <thead>
                     <tr style={{borderBottom:"1px solid #2e3350"}}>
-                      {["Symbol","Typ","Entry","Aktualnie","P&L","Dźwignia","Kanał"].map(h=>(
+                      {["Symbol","Typ","Entry","P&L","Dźwignia"].map(h=>(
                         <th key={h} style={{color:"#5c6494",fontSize:9,padding:"6px 8px",
-                          textAlign:"left",textTransform:"uppercase"}}>{h}</th>
+                          textAlign:"left",textTransform:"uppercase",whiteSpace:"nowrap"}}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {selPositions.filter(p=>p.status==="OPEN").map(p=>{
-                      const pnl = p.unrealized_pnl || 0;
+                      const pnl = p.unrealized_pnl||0;
                       const isL = ["LONG","SPOT_BUY"].includes(p.signal_type);
                       return (
                         <tr key={p.id} style={{borderBottom:"1px solid rgba(46,51,80,.3)"}}>
@@ -2084,18 +2097,10 @@ function ShadowPortfolioDashboard({portfolios, positions, realPortfolio}) {
                               {p.signal_type}
                             </span>
                           </td>
-                          <td style={{padding:"6px 8px",color:"#9898b8"}}>${p.entry_price?.toPrecision(5)}</td>
-                          <td style={{padding:"6px 8px",color:pnl>=0?"#00e676":"#ff5252"}}>
-                            ${p.current_price?.toPrecision(5)||"—"}
-                          </td>
+                          <td style={{padding:"6px 8px",color:"#9898b8"}}>${p.entry_price?.toPrecision(4)||"—"}</td>
                           <td style={{padding:"6px 8px",fontWeight:700,
-                            color:pnl>=0?"#00e676":"#ff5252"}}>
-                            {pnl>=0?"+":""}{pnl.toFixed(2)}$
-                          </td>
+                            color:pnl>=0?"#00e676":"#ff5252"}}>{pnl>=0?"+":""}{pnl.toFixed(2)}$</td>
                           <td style={{padding:"6px 8px",color:"#ffd740"}}>x{p.leverage}</td>
-                          <td style={{padding:"6px 8px",color:"#9898b8",fontSize:10}}>
-                            {p.channel_name||p.channel||"—"}
-                          </td>
                         </tr>
                       );
                     })}
@@ -2107,14 +2112,133 @@ function ShadowPortfolioDashboard({portfolios, positions, realPortfolio}) {
         </div>
       )}
 
-      {/* Legenda */}
       <div style={{background:"#141720",border:"1px solid #2e3350",borderRadius:8,
-        padding:"12px 16px",fontSize:11,color:"#5c6494"}}>
-        💡 Kliknij kartę strategii żeby zobaczyć szczegóły i otwarte pozycje.
-        Shadow portfolio śledzi te same sygnały co Twój bot ale z różnymi parametrami —
-        bez realnych pieniędzy. Wyniki po historycznych danych są przybliżone.
+        padding:"10px 14px",fontSize:11,color:"#5c6494",lineHeight:1.6}}>
+        💡 Kliknij kartę żeby zobaczyć szczegóły. Shadow portfolio śledzi te same sygnały co bot
+        z różnymi parametrami — bez realnych pieniędzy.
+      </div>
+    </div>
+  );
+}
+
+
+
+// ─── 🛡️ RISK PANEL — informacyjny dashboard ryzyka ──────────────────────────
+function RiskPanel({portfolio, openPos}) {
+  if (!portfolio) return null;
+
+  const capital      = portfolio.current_capital || 200;
+  const initial      = portfolio.initial_capital || 200;
+  const riskPct      = portfolio.risk_pct || 4;
+  const slippage     = portfolio.slippage_pct || 0.5;
+  const riskPerTrade = round2(capital * riskPct / 100);
+  const exposedUsd   = openPos.reduce((s,p)=>s+(p.allocated_usd||0),0);
+  const exposedPct   = round2(exposedUsd / initial * 100);
+  const drawdown     = round2((1 - capital/initial)*100);
+  const capitalPct   = Math.min(Math.round(capital/initial*100),100);
+  const isWarning    = drawdown > 20;
+  const isDanger     = drawdown > 35;
+
+  const liquidationRisks = openPos
+    .filter(p => p.liquidation_price)
+    .map(p => {
+      const liq  = p.liquidation_price;
+      const curr = p.current_price || p.entry_price;
+      const isL  = ["LONG","SPOT_BUY"].includes(p.signal_type);
+      const distPct = isL
+        ? round2((curr - liq) / curr * 100)
+        : round2((liq - curr) / curr * 100);
+      return {...p, liq, distPct};
+    })
+    .filter(p => p.distPct < 15)
+    .sort((a,b) => a.distPct - b.distPct);
+
+  return (
+    <div style={{background:"#1c2030",
+      border:`1px solid ${isDanger?"#ff5252":isWarning?"#ffd740":"#2e3350"}`,
+      borderRadius:10,padding:"14px 16px",marginBottom:14}}>
+
+      {/* Alert drawdown — tylko informacyjny */}
+      {isDanger && (
+        <div style={{background:"rgba(255,82,82,.08)",border:"1px solid rgba(255,82,82,.3)",
+          borderLeft:"3px solid #ff5252",borderRadius:6,padding:"10px 14px",marginBottom:12}}>
+          <div style={{color:"#ff5252",fontWeight:700,fontSize:12,fontFamily:"monospace"}}>
+            ⚠️ Drawdown {drawdown}% — duże straty, sprawdź które kanały zawodzą
+          </div>
+        </div>
+      )}
+      {isWarning && !isDanger && (
+        <div style={{background:"rgba(255,215,64,.06)",border:"1px solid rgba(255,215,64,.25)",
+          borderLeft:"3px solid #ffd740",borderRadius:6,padding:"8px 14px",marginBottom:12}}>
+          <div style={{color:"#ffd740",fontSize:11,fontFamily:"monospace"}}>
+            📉 Drawdown {drawdown}% — obserwuj wyniki kanałów
+          </div>
+        </div>
+      )}
+
+      <div style={{color:"#9898b8",fontSize:10,letterSpacing:"0.1em",
+        textTransform:"uppercase",marginBottom:12,fontWeight:600}}>
+        🛡️ Panel ryzyka
       </div>
 
+      {/* Metryki */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))",gap:10,marginBottom:14}}>
+        {[
+          {l:"Kapitał",        v:`$${capital.toFixed(2)}`,                   c:isDanger?"#ff5252":isWarning?"#ffd740":"#00e676"},
+          {l:"Ryzyko/trade",   v:`$${riskPerTrade.toFixed(2)} (${riskPct}%)`,c:"#00e5ff"},
+          {l:"Otwarte poz.",   v:`${openPos.length}`,                        c:"#9898b8"},
+          {l:"Ekspozycja",     v:`$${exposedUsd.toFixed(2)} (${exposedPct}%)`,c:exposedPct>80?"#ff9f43":"#9898b8"},
+          {l:"Drawdown",       v:`${drawdown > 0 ? drawdown : 0}%`,          c:isDanger?"#ff5252":isWarning?"#ffd740":"#00e676"},
+          {l:"Slippage sim.",  v:`${slippage}%`,                             c:"#5c6494"},
+        ].map(s=>(
+          <div key={s.l} style={{background:"#0d0f17",borderRadius:8,padding:"10px 12px"}}>
+            <div style={{color:"#5c6494",fontSize:10,marginBottom:4}}>{s.l}</div>
+            <div style={{color:s.c,fontFamily:"monospace",fontSize:13,fontWeight:700}}>{s.v}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Pasek kapitału */}
+      <div style={{marginBottom: liquidationRisks.length > 0 ? 12 : 0}}>
+        <div style={{display:"flex",justifyContent:"space-between",
+          fontSize:10,color:"#5c6494",marginBottom:4}}>
+          <span>Kapitał: <span style={{color:"#e8eaf6",fontFamily:"monospace"}}>${capital.toFixed(2)}</span></span>
+          <span>Start: <span style={{color:"#9898b8",fontFamily:"monospace"}}>${initial.toFixed(2)}</span></span>
+        </div>
+        <div style={{background:"#0d0f17",borderRadius:4,height:10,overflow:"hidden"}}>
+          <div style={{
+            width:`${capitalPct}%`,height:"100%",
+            background:isDanger?"#ff5252":isWarning?"#ffd740":"#00e676",
+            borderRadius:4,transition:"width .5s ease",
+          }}/>
+        </div>
+        <div style={{textAlign:"right",fontSize:10,color:"#5c6494",marginTop:3}}>
+          {capitalPct}% pozostało
+        </div>
+      </div>
+
+      {/* Liquidation alert */}
+      {liquidationRisks.length > 0 && (
+        <div style={{background:"rgba(255,82,82,.06)",border:"1px solid rgba(255,82,82,.2)",
+          borderRadius:6,padding:"10px 14px"}}>
+          <div style={{color:"#ff9f43",fontSize:10,fontWeight:700,
+            fontFamily:"monospace",marginBottom:6}}>
+            ⚡ Pozycje bliskie likwidacji (&lt;15% od ceny liq.)
+          </div>
+          {liquidationRisks.map(p=>(
+            <div key={p.id} style={{display:"flex",justifyContent:"space-between",
+              alignItems:"center",fontSize:11,fontFamily:"monospace",
+              padding:"4px 0",borderBottom:"1px solid rgba(46,51,80,.3)"}}>
+              <span style={{color:"#e8eaf6",fontWeight:700}}>{p.symbol}</span>
+              <span style={{color:"#9898b8"}}>liq: ${p.liq?.toPrecision(4)}</span>
+              <span style={{
+                color:p.distPct<5?"#ff5252":"#ff9f43",
+                fontWeight:700
+              }}>{p.distPct}% dystans</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -2263,6 +2387,18 @@ export default function App(){
   },[]);
 
   const [marketRegime, setMarketRegime] = useState(null);
+  const [aiMentor, setAiMentor] = useState(null);
+  const [strategyEvolution, setStrategyEvolution] = useState(null);
+  useEffect(()=>{
+    return onSnapshot(doc(db,"ai_mentor","latest"), snap=>{
+      if(snap.exists()) setAiMentor(snap.data());
+    });
+  },[]);
+  useEffect(()=>{
+    return onSnapshot(doc(db,"strategy_evolution","latest"), snap=>{
+      if(snap.exists()) setStrategyEvolution(snap.data());
+    });
+  },[]);
   const [shadowPortfolios, setShadowPortfolios] = useState([]);
   const [shadowPositions, setShadowPositions] = useState([]);
   useEffect(()=>{
@@ -2310,7 +2446,7 @@ export default function App(){
         <span style={{fontSize:18}}>📡</span>
         <div>
           <span style={{color:"#fff",fontWeight:800,fontSize:14,letterSpacing:2}}>SIGNAL MONITOR</span>
-          <span style={{color:"#9898b8",fontSize:11,marginLeft:12}}>Telegram → Firebase · $500 · 3% / trade</span>
+          <span style={{color:"#9898b8",fontSize:11,marginLeft:12}}>Telegram → Firebase · $200 · 4% / trade · slippage 0.5%</span>
         </div>
         <div style={{marginLeft:"auto",display:"flex",gap:16,fontSize:11,fontFamily:"monospace"}}>
           <span style={{color:"#b8b8d0"}}>Otwarte: <span style={{color:GREEN}}>{openPos.length}</span></span>
@@ -2325,6 +2461,7 @@ export default function App(){
 
         {tab==="portfolio"&&(<>
           <PortfolioHeader portfolio={portfolio}/>
+          <RiskPanel portfolio={portfolio} openPos={openPos}/>
           {openPos.length>0&&<Card color={BLUE} title="OTWARTE POZYCJE" count={openPos.length}>
             <PositionsTable positions={openPos} channelNames={channelNames}
               onRename={handleRename} onClose={closePositionManually}/>
@@ -2358,7 +2495,7 @@ export default function App(){
 
         {tab==="debug"&&<BotHealthDashboard health={health} channelNames={channelNames} openPos={openPos}/>}
 
-        {tab==="intelligence"&&<IntelligenceDashboard closedPos={closedPos} channelNames={channelNames} marketRegime={marketRegime}/>}
+        {tab==="intelligence"&&<IntelligenceDashboard closedPos={closedPos} channelNames={channelNames} marketRegime={marketRegime} aiMentor={aiMentor} strategyEvolution={strategyEvolution}/>}
 
         {tab==="sentiment"&&<SentimentHarmonia signals={signals} openPos={openPos} closedPos={closedPos}/>}
         {tab==="shadow"&&<ShadowPortfolioDashboard portfolios={shadowPortfolios} positions={shadowPositions} realPortfolio={portfolio}/>}
