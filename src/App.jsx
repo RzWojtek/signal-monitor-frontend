@@ -2480,6 +2480,222 @@ function StrategyEvolutionWidget({evolution}) {
   );
 }
 
+
+// ─── 📝 ADVANCED LOG ─────────────────────────────────────────────────────────
+function AdvancedLog({events, channelNames, channelStats}) {
+  const [filterChannel, setFilterChannel] = useState("all");
+  const [filterType,    setFilterType]    = useState("all");
+  const [search,        setSearch]        = useState("");
+
+  const today = new Date().toISOString().slice(0,10);
+
+  // Filtruj do dzisiejszych wpisów
+  const todayEvents = events.filter(e => {
+    const ts = e.timestamp_iso || e.timestamp_iso || "";
+    return ts.startsWith(today);
+  });
+
+  // Dostępne kanały z logów
+  const channels = ["all", ...new Set(todayEvents.map(e => e.channel_name||e.channel||"?"))];
+
+  // Typy zdarzeń
+  const EVENT_TYPES = [
+    {id:"all",            label:"Wszystkie"},
+    {id:"OPEN",           label:"✅ Otwarcia"},
+    {id:"CLOSE",          label:"🔒 Zamknięcia"},
+    {id:"TP_PARTIAL",     label:"🎯 TP"},
+    {id:"SL_TO_BE",       label:"🔒 SL→BE"},
+    {id:"PREFILTER_REJECT",label:"⛔ Pre-filter"},
+    {id:"GROQ_REJECT",    label:"🤖 Groq odrzucił"},
+    {id:"UPDATE",         label:"🔄 Update"},
+    {id:"DCA",            label:"💰 DCA"},
+  ];
+
+  // Zastosuj filtry
+  const filtered = todayEvents.filter(e => {
+    if (filterChannel !== "all" && (e.channel_name||e.channel||"?") !== filterChannel) return false;
+    if (filterType !== "all" && e.event_type !== filterType) return false;
+    if (search && !JSON.stringify(e).toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  });
+
+  // Statystyki dzisiejsze
+  const stats = {
+    total:    todayEvents.length,
+    signals:  todayEvents.filter(e=>e.event_type==="OPEN").length,
+    rejected: todayEvents.filter(e=>["PREFILTER_REJECT","GROQ_REJECT"].includes(e.event_type)).length,
+    prefilter:todayEvents.filter(e=>e.event_type==="PREFILTER_REJECT").length,
+    groq:     todayEvents.filter(e=>e.event_type==="GROQ_REJECT").length,
+    closes:   todayEvents.filter(e=>e.event_type==="CLOSE").length,
+    tps:      todayEvents.filter(e=>e.event_type==="TP_PARTIAL").length,
+  };
+
+  const eventStyle = (type) => {
+    const map = {
+      "OPEN":             {color:"#00e676", bg:"rgba(0,230,118,.08)",  icon:"✅"},
+      "CLOSE":            {color:"#82b1ff", bg:"rgba(130,177,255,.08)",icon:"🔒"},
+      "TP_PARTIAL":       {color:"#00e5ff", bg:"rgba(0,229,255,.08)",  icon:"🎯"},
+      "SL_TO_BE":         {color:"#ce93d8", bg:"rgba(206,147,216,.08)",icon:"🔒"},
+      "PREFILTER_REJECT": {color:"#ff5252", bg:"rgba(255,82,82,.06)",  icon:"⛔"},
+      "GROQ_REJECT":      {color:"#ff9f43", bg:"rgba(255,159,67,.06)", icon:"🤖"},
+      "UPDATE":           {color:"#ffd740", bg:"rgba(255,215,64,.06)", icon:"🔄"},
+      "DCA":              {color:"#69f0ae", bg:"rgba(105,240,174,.08)",icon:"💰"},
+      "SL_HIT":           {color:"#ff5252", bg:"rgba(255,82,82,.08)",  icon:"🛑"},
+      "RISK_BLOCK":       {color:"#ff5252", bg:"rgba(255,82,82,.06)",  icon:"⛔"},
+    };
+    return map[type] || {color:"#9898b8", bg:"rgba(152,152,184,.06)", icon:"•"};
+  };
+
+  const fmtTime = (e) => {
+    const ts = e.timestamp_iso || "";
+    if (!ts) return "—";
+    try { return new Date(ts).toLocaleTimeString("pl-PL",{hour:"2-digit",minute:"2-digit",second:"2-digit"}); }
+    catch { return ts.slice(11,19); }
+  };
+
+  const inputStyle = {
+    background:"#0d0f17", border:"1px solid #2e3350", borderRadius:6,
+    color:"#e8eaf6", fontSize:11, fontFamily:"monospace",
+    padding:"6px 10px", outline:"none",
+  };
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:14}}>
+
+      {/* Statystyki dnia */}
+      <div style={{background:"#1c2030",border:"1px solid #2e3350",borderRadius:10,padding:"14px 16px"}}>
+        <div style={{color:"#9898b8",fontSize:10,letterSpacing:"0.1em",
+          textTransform:"uppercase",marginBottom:12,fontWeight:600}}>
+          📊 Dzisiaj — {today}
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(100px,1fr))",gap:10}}>
+          {[
+            {l:"Wszystkich",  v:stats.total,    c:"#9898b8"},
+            {l:"Sygnałów",    v:stats.signals,  c:"#00e676"},
+            {l:"Zamkniętych", v:stats.closes,   c:"#82b1ff"},
+            {l:"TP trafione", v:stats.tps,      c:"#00e5ff"},
+            {l:"Pre-filter ⛔",v:stats.prefilter,c:"#ff5252"},
+            {l:"Groq odrzucił",v:stats.groq,   c:"#ff9f43"},
+          ].map(s=>(
+            <div key={s.l} style={{background:"#0d0f17",borderRadius:8,padding:"10px 12px",textAlign:"center"}}>
+              <div style={{color:s.c,fontFamily:"monospace",fontSize:18,fontWeight:700}}>{s.v}</div>
+              <div style={{color:"#5c6494",fontSize:10,marginTop:3}}>{s.l}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Filtry */}
+      <div style={{background:"#1c2030",border:"1px solid #2e3350",borderRadius:10,padding:"12px 16px"}}>
+        <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
+
+          {/* Szukaj */}
+          <input
+            value={search} onChange={e=>setSearch(e.target.value)}
+            placeholder="🔍 Szukaj (symbol, kanał...)"
+            style={{...inputStyle, flex:1, minWidth:150}}
+          />
+
+          {/* Filtr kanału */}
+          <select value={filterChannel} onChange={e=>setFilterChannel(e.target.value)}
+            style={{...inputStyle, cursor:"pointer"}}>
+            {channels.map(ch=>(
+              <option key={ch} value={ch}>{ch==="all"?"Wszystkie kanały":ch}</option>
+            ))}
+          </select>
+
+          {/* Filtr typu */}
+          <select value={filterType} onChange={e=>setFilterType(e.target.value)}
+            style={{...inputStyle, cursor:"pointer"}}>
+            {EVENT_TYPES.map(t=>(
+              <option key={t.id} value={t.id}>{t.label}</option>
+            ))}
+          </select>
+
+          <div style={{color:"#5c6494",fontSize:11,fontFamily:"monospace",flexShrink:0}}>
+            {filtered.length} / {todayEvents.length} wpisów
+          </div>
+
+          {(filterChannel!=="all"||filterType!=="all"||search) && (
+            <button onClick={()=>{setFilterChannel("all");setFilterType("all");setSearch("");}}
+              style={{...inputStyle,cursor:"pointer",color:"#ff5252",borderColor:"rgba(255,82,82,.3)"}}>
+              ✕ Reset
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Lista wpisów */}
+      <div style={{display:"flex",flexDirection:"column",gap:4}}>
+        {filtered.length === 0 && (
+          <div style={{background:"#1c2030",border:"1px solid #2e3350",borderRadius:10,
+            padding:30,textAlign:"center",color:"#9898b8",fontSize:13}}>
+            {todayEvents.length === 0
+              ? "Brak zdarzeń dzisiaj — kanały jeszcze nie wysłały wiadomości."
+              : "Brak wyników dla wybranych filtrów."}
+          </div>
+        )}
+
+        {filtered.map(e => {
+          const s = eventStyle(e.event_type);
+          const isReject = ["PREFILTER_REJECT","GROQ_REJECT"].includes(e.event_type);
+          const ch = e.channel_name || e.channel || "?";
+
+          return (
+            <div key={e.id} style={{
+              background:s.bg, border:`1px solid ${s.color}22`,
+              borderLeft:`3px solid ${s.color}`,
+              borderRadius:8, padding:"10px 14px",
+            }}>
+              <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                {/* Czas */}
+                <span style={{color:"#5c6494",fontSize:10,fontFamily:"monospace",flexShrink:0}}>
+                  {fmtTime(e)}
+                </span>
+
+                {/* Typ zdarzenia */}
+                <span style={{
+                  background:s.color+"22", color:s.color,
+                  fontSize:9, fontWeight:700, padding:"2px 7px",
+                  borderRadius:4, fontFamily:"monospace", flexShrink:0,
+                }}>
+                  {s.icon} {e.event_type}
+                </span>
+
+                {/* Kanał */}
+                <span style={{color:"#9898b8",fontSize:11,flexShrink:0}}>{ch}</span>
+
+                {/* Symbol */}
+                {e.symbol && e.symbol !== "—" && e.symbol !== "?" && (
+                  <span style={{color:"#e8eaf6",fontWeight:700,fontSize:12,fontFamily:"monospace",flexShrink:0}}>
+                    {e.symbol}
+                  </span>
+                )}
+
+                {/* Wiadomość */}
+                <span style={{color:isReject?"#9898b8":"#b8b8d0",fontSize:11,
+                  flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                  {e.message || ""}
+                </span>
+              </div>
+
+              {/* Preview dla odrzuconych */}
+              {isReject && e.raw_preview && (
+                <div style={{marginTop:6,padding:"6px 10px",background:"rgba(0,0,0,.2)",
+                  borderRadius:4,fontSize:10,color:"#5c6494",fontFamily:"monospace",
+                  maxHeight:60,overflow:"hidden",lineHeight:1.4}}>
+                  {e.raw_preview.slice(0,150).replace(/
+/g," · ")}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ─── Tab Bar ───────────────────────────────────────────────────────────────────
 const TABS=[
   {id:"portfolio",label:"📊 Portfolio"},
@@ -2595,7 +2811,7 @@ export default function App(){
   },[]);
 
   useEffect(()=>{
-    const q=query(collection(db,"simulation_log"),orderBy("timestamp","desc"),limit(100));
+    const q=query(collection(db,"simulation_log"),orderBy("timestamp","desc"),limit(300));
     return onSnapshot(q,snap=>setLogEvents(snap.docs.map(d=>({id:d.id,...d.data()}))));
   },[]);
 
@@ -2726,9 +2942,7 @@ export default function App(){
           {signals.map(s=><SignalCard key={s.id} signal={s} channelNames={channelNames} onRename={handleRename}/>)}
         </div>}
 
-        {tab==="log"&&<Card color="#9898b8" title="LOG ZDARZEŃ" count={logEvents.length}>
-          <EventLog events={logEvents} channelNames={channelNames} onRename={handleRename}/>
-        </Card>}
+        {tab==="log"&&<AdvancedLog events={logEvents} channelNames={channelNames} channelStats={channelStats}/>}
 
         {tab==="debug"&&<BotHealthDashboard health={health} channelNames={channelNames} openPos={openPos}/>}
 
