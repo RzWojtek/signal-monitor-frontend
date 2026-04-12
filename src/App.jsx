@@ -2684,7 +2684,7 @@ function AdvancedLog({events, channelNames, channelStats}) {
                 <div style={{marginTop:6,padding:"6px 10px",background:"rgba(0,0,0,.2)",
                   borderRadius:4,fontSize:10,color:"#5c6494",fontFamily:"monospace",
                   maxHeight:60,overflow:"hidden",lineHeight:1.4}}>
-                  {e.raw_preview.slice(0,150).replace(/\n/g," · ")}
+                  {e.raw_preview.slice(0,150).split("\n").join(" · ")}
                 </div>
               )}
             </div>
