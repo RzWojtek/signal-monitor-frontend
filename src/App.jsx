@@ -2491,8 +2491,10 @@ function AdvancedLog({events, channelNames, channelStats}) {
 
   // Filtruj do dzisiejszych wpisów
   const todayEvents = events.filter(e => {
-    const ts = e.timestamp_iso || e.timestamp_iso || "";
-    return ts.startsWith(today);
+    try {
+      const ts = e.timestamp_iso || (e.timestamp?.toDate ? e.timestamp.toDate().toISOString() : null) || "";
+      return ts.startsWith(today);
+    } catch { return false; }
   });
 
   // Dostępne kanały z logów
