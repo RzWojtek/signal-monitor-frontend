@@ -387,14 +387,138 @@ function PositionsTable({positions,channelNames,onRename,onClose}){
 }
 
 // ─── Closed Positions ──────────────────────────────────────────────────────────
+function ClosedPositionDetail({pos}) {
+  const tps        = pos.take_profits || [];
+  const tpsHit     = pos.tps_hit || [];
+  const partials   = pos.partial_closes || [];
+  const isLong     = ["LONG","SPOT_BUY"].includes(pos.signal_type);
+  const reason     = pos.close_reason || "";
+  const slHit      = reason === "SL_HIT";
+  const lastTpHit  = tpsHit.length > 0 ? Math.max(...tpsHit) : 0;
+  const totalTps   = tps.length;
+  const pnl        = pos.realized_pnl ?? 0;
+
+  // Podsumowanie słowne
+  let summary = "";
+  if (slHit && tpsHit.length === 0) {
+    summary = "❌ Pozycja nieudana — SL trafiony bez żadnego TP";
+  } else if (slHit && tpsHit.length > 0) {
+    summary = `⚠️ Częściowy sukces — TP${lastTpHit} osiągnięty, potem SL trafiony`;
+  } else if (reason.includes("TP")) {
+    if (lastTpHit === totalTps) {
+      summary = `✅ Pełny sukces — wszystkie ${totalTps} TP osiągnięte`;
+    } else {
+      summary = `✅ Zamknięto na TP${lastTpHit} z ${totalTps}`;
+    }
+  } else if (reason === "MANUAL_CLOSE") {
+    summary = "🔧 Zamknięto ręcznie";
+  } else {
+    summary = `Zamknięto: ${reason}`;
+  }
+
+  return (
+    <div style={{padding:"12px 16px",background:"#0d0f17",borderTop:"1px solid #2e3350"}}>
+      {/* Podsumowanie */}
+      <div style={{color:"#e8eaf6",fontSize:12,marginBottom:12,fontFamily:"monospace",
+        padding:"8px 12px",background:"rgba(255,255,255,.04)",borderRadius:6}}>
+        {summary}
+        {pnl !== 0 && <span style={{marginLeft:12,color:pnl>=0?"#00e676":"#ff5252",fontWeight:700}}>
+          {pnl>=0?"+":""}{pnl.toFixed(2)}$ łącznie
+        </span>}
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+        {/* TP Historia */}
+        <div>
+          <div style={{color:"#9898b8",fontSize:10,letterSpacing:"0.1em",
+            textTransform:"uppercase",marginBottom:8,fontWeight:600}}>
+            Cele zysku ({tpsHit.length}/{totalTps} trafione)
+          </div>
+          {tps.map(tp => {
+            const hit = tpsHit.includes(tp.level);
+            const partial = partials.find(p => p.tp_level === tp.level);
+            const isLast = tp.level === lastTpHit && slHit;
+            return (
+              <div key={tp.level} style={{
+                display:"flex",alignItems:"center",gap:8,
+                padding:"5px 8px",marginBottom:4,borderRadius:5,
+                background: hit ? "rgba(0,230,118,.08)" : "rgba(255,255,255,.02)",
+                border: `1px solid ${hit?"rgba(0,230,118,.2)":"rgba(46,51,80,.4)"}`,
+              }}>
+                <span style={{fontSize:14,flexShrink:0}}>
+                  {hit ? (isLast ? "⚠️" : "✅") : "○"}
+                </span>
+                <span style={{color:"#9898b8",fontSize:11,fontFamily:"monospace",flexShrink:0}}>
+                  TP{tp.level}
+                </span>
+                <span style={{color:hit?"#00e676":"#5c6494",fontFamily:"monospace",fontSize:11}}>
+                  ${fmt(tp.price, 4)}
+                </span>
+                <span style={{color:"#5c6494",fontSize:10}}>{tp.close_pct||0}%</span>
+                {partial && (
+                  <span style={{marginLeft:"auto",color:"#00e676",fontFamily:"monospace",
+                    fontSize:11,fontWeight:700}}>
+                    +{partial.pnl?.toFixed(2)}$
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* SL + szczegóły */}
+        <div>
+          <div style={{color:"#9898b8",fontSize:10,letterSpacing:"0.1em",
+            textTransform:"uppercase",marginBottom:8,fontWeight:600}}>
+            Stop Loss
+          </div>
+          <div style={{
+            display:"flex",alignItems:"center",gap:8,
+            padding:"5px 8px",marginBottom:12,borderRadius:5,
+            background: slHit?"rgba(255,82,82,.1)":"rgba(255,255,255,.02)",
+            border:`1px solid ${slHit?"rgba(255,82,82,.3)":"rgba(46,51,80,.4)"}`,
+          }}>
+            <span style={{fontSize:14}}>{slHit?"🛑":"○"}</span>
+            <span style={{color:slHit?"#ff5252":"#5c6494",fontFamily:"monospace",fontSize:11}}>
+              ${fmt(pos.stop_loss||pos.original_stop_loss, 4)}
+            </span>
+            {slHit && <span style={{color:"#ff5252",fontSize:10,marginLeft:"auto"}}>TRAFIONY</span>}
+          </div>
+
+          <div style={{color:"#9898b8",fontSize:10,letterSpacing:"0.1em",
+            textTransform:"uppercase",marginBottom:8,fontWeight:600}}>
+            Szczegóły pozycji
+          </div>
+          {[
+            {l:"Entry",    v:`$${fmt(pos.entry_price,5)}`},
+            {l:"Exit",     v:`$${fmt(pos.close_price,5)}`},
+            {l:"Dźwignia", v:`x${pos.leverage}`},
+            {l:"Ryzyko",   v:`$${fmt(pos.allocated_usd,2)}`},
+            {l:"Slippage", v:`${pos.slippage_pct||0}%`},
+            {l:"Otwarto",  v:pos.opened_at?new Date(pos.opened_at).toLocaleTimeString("pl-PL",{hour:"2-digit",minute:"2-digit"}):"—"},
+            {l:"Zamknięto",v:pos.closed_at?new Date(pos.closed_at).toLocaleTimeString("pl-PL",{hour:"2-digit",minute:"2-digit"}):"—"},
+          ].map(s=>(
+            <div key={s.l} style={{display:"flex",justifyContent:"space-between",
+              padding:"3px 0",borderBottom:"1px solid rgba(46,51,80,.3)"}}>
+              <span style={{color:"#5c6494",fontSize:11}}>{s.l}</span>
+              <span style={{color:"#b8b8d0",fontFamily:"monospace",fontSize:11}}>{s.v}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ClosedTable({positions,channelNames,onRename}){
+  const [expanded, setExpanded] = useState(null);
   if(!positions.length) return <div style={{color:"#7878a0",textAlign:"center",padding:20,fontSize:13}}>Brak zamkniętych</div>;
   return(
     <div style={{overflowX:"auto"}}>
       <table style={{width:"100%",borderCollapse:"collapse",fontFamily:"monospace",fontSize:12}}>
         <thead>
           <tr style={{borderBottom:`1px solid ${BORDER}`}}>
-            {["Symbol","Typ","Entry","Exit","P&L $","P&L %","Powód","Kanał","Czas"].map(h=>(
+            {["","Symbol","Typ","Entry","Exit","P&L $","P&L %","Powód","Kanał","Czas"].map(h=>(
               <th key={h} style={{color:"#9898b8",fontSize:10,letterSpacing:1,padding:"8px 10px",
                 textAlign:"left",textTransform:"uppercase"}}>{h}</th>
             ))}
@@ -404,24 +528,44 @@ function ClosedTable({positions,channelNames,onRename}){
           {positions.map(pos=>{
             const pnl=pos.realized_pnl??0,pnlPct=pos.realized_pnl_pct??0;
             const isPos=pnl>=0,isLong=["LONG","SPOT_BUY"].includes(pos.signal_type);
+            const isOpen = expanded === pos.id;
+            const tpsHit = pos.tps_hit?.length ?? 0;
+            const tpsTotal = pos.take_profits?.length ?? 0;
             return(
-              <tr key={pos.id} style={{borderBottom:`1px solid ${BORDER}22`}}
-                onMouseEnter={e=>e.currentTarget.style.background="#ffffff05"}
-                onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-                <td style={{padding:"8px 10px",color:"#e8e8f0",fontWeight:600}}>{pos.symbol}</td>
-                <td style={{padding:"8px 10px"}}><Pill label={pos.signal_type} color={isLong?GREEN:RED}/></td>
-                <td style={{padding:"8px 10px",color:"#a0a0c0"}}>${fmt(pos.entry_price,4)}</td>
-                <td style={{padding:"8px 10px",color:"#a0a0c0"}}>${fmt(pos.close_price,4)}</td>
-                <td style={{padding:"8px 10px",fontWeight:700,color:isPos?GREEN:RED}}>{isPos?"+":""}{fmtK(pnl)}</td>
-                <td style={{padding:"8px 10px",color:isPos?GREEN+"99":RED+"99"}}>{isPos?"+":""}{pct(pnlPct)}</td>
-                <td style={{padding:"8px 10px"}}>
-                  <Pill label={pos.close_reason||"?"} color={pos.close_reason?.includes("TP")?GREEN:pos.close_reason==="SL_HIT"?RED:"#888"}/>
-                </td>
-                <td style={{padding:"8px 10px"}} onClick={e=>e.stopPropagation()}>
-                  <ChannelTag channelId={pos.channel} channelNames={channelNames} onRename={onRename}/>
-                </td>
-                <td style={{padding:"8px 10px",color:"#9898b8",fontSize:11}}>{ago(pos.closed_at)}</td>
-              </tr>
+              <React.Fragment key={pos.id}>
+                <tr style={{borderBottom:isOpen?"none":`1px solid ${BORDER}22`,
+                  cursor:"pointer",transition:"background .15s"}}
+                  onClick={()=>setExpanded(isOpen?null:pos.id)}
+                  onMouseEnter={e=>e.currentTarget.style.background="#ffffff05"}
+                  onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                  <td style={{padding:"8px 10px",color:"#5c6494",fontSize:12}}>
+                    {isOpen?"▲":"▼"}
+                  </td>
+                  <td style={{padding:"8px 10px",color:"#e8e8f0",fontWeight:600}}>{pos.symbol}</td>
+                  <td style={{padding:"8px 10px"}}><Pill label={pos.signal_type} color={isLong?GREEN:RED}/></td>
+                  <td style={{padding:"8px 10px",color:"#a0a0c0"}}>${fmt(pos.entry_price,4)}</td>
+                  <td style={{padding:"8px 10px",color:"#a0a0c0"}}>${fmt(pos.close_price,4)}</td>
+                  <td style={{padding:"8px 10px",fontWeight:700,color:isPos?GREEN:RED}}>{isPos?"+":""}{fmtK(pnl)}</td>
+                  <td style={{padding:"8px 10px",color:isPos?GREEN+"99":RED+"99"}}>{isPos?"+":""}{pct(pnlPct)}</td>
+                  <td style={{padding:"8px 10px"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:6}}>
+                      <Pill label={pos.close_reason||"?"} color={pos.close_reason?.includes("TP")?GREEN:pos.close_reason==="SL_HIT"?RED:"#888"}/>
+                      {tpsTotal>0&&<span style={{color:"#5c6494",fontSize:10}}>{tpsHit}/{tpsTotal}TP</span>}
+                    </div>
+                  </td>
+                  <td style={{padding:"8px 10px"}} onClick={e=>e.stopPropagation()}>
+                    <ChannelTag channelId={pos.channel} channelNames={channelNames} onRename={onRename}/>
+                  </td>
+                  <td style={{padding:"8px 10px",color:"#9898b8",fontSize:11}}>{ago(pos.closed_at)}</td>
+                </tr>
+                {isOpen && (
+                  <tr style={{borderBottom:`1px solid ${BORDER}22`}}>
+                    <td colSpan={10} style={{padding:0}}>
+                      <ClosedPositionDetail pos={pos}/>
+                    </td>
+                  </tr>
+                )}
+              </React.Fragment>
             );
           })}
         </tbody>
