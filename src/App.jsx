@@ -534,10 +534,9 @@ function ClosedTable({positions,channelNames,onRename}){
             return(
               <React.Fragment key={pos.id}>
                 <tr style={{borderBottom:isOpen?"none":`1px solid ${BORDER}22`,
-                  cursor:"pointer",transition:"background .15s"}}
-                  onClick={()=>setExpanded(isOpen?null:pos.id)}
-                  onMouseEnter={e=>e.currentTarget.style.background="#ffffff05"}
-                  onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                  cursor:"pointer",transition:"background .15s",
+                  background:isOpen?"rgba(0,229,255,.04)":"transparent"}}
+                  onClick={()=>setExpanded(isOpen?null:pos.id)}>
                   <td style={{padding:"8px 10px",color:"#5c6494",fontSize:12}}>
                     {isOpen?"▲":"▼"}
                   </td>
