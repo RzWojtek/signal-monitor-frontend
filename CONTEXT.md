@@ -1,0 +1,472 @@
+# CONTEXT.md — Telegram Signal Bot / Trading Simulation System
+
+## 1. Czym jest aplikacja
+
+System monitorowania sygnałów tradingowych z Telegrama + symulacja portfela tradingowego.
+
+**Flow:**
+1. Bot Python (Telethon) nasłuchuje 11 kanałów Telegram
+2. Każda wiadomość przechodzi przez pre-filter (reguły) → Groq AI (parsowanie)
+3. Sygnały trafiają do Firebase Firestore
+4. Symulacja otwiera/zamyka pozycje i śledzi P&L
+5. React frontend wyświetla dane w czasie rzeczywistym
+
+**Tryb:** DRY RUN — brak realnych zleceń, tylko symulacja na $200 kapitału
+
+---
+
+## 2. Stack technologiczny
+
+| Warstwa | Technologia |
+|---------|-------------|
+| Bot | Python 3.12, Telethon (Telegram MTProto) |
+| AI Parser | Groq API (llama-3.3-70b-versatile) |
+| Baza danych | Firebase Firestore (plan Blaze) |
+| Frontend | React + Vite, vanilla JS, Tailwind |
+| Hosting frontend | Vercel (GitHub → auto-deploy) |
+| VPS | Ubuntu, PM2 process manager |
+| Ceny | MEXC public API (bez klucza) |
+
+---
+
+## 3. Struktura plików
+
+### VPS `/home/signal-bot/`
+```
+bot.py                    ← główny bot (Telethon + polling + keepalive)
+simulation.py             ← silnik symulacji (open/close pozycji, P&L)
+price_updater.py          ← pobiera ceny MEXC co 30s, sprawdza TP/SL
+health_monitor.py         ← heartbeat, liczniki tokenów, channel stats
+market_regime.py          ← BTC/Fear&Greed/dominacja co 1h (PM2: market-regime)
+shadow_portfolio.py       ← 6 strategii shadow (PM2: shadow-portfolio)
+ai_mentor.py              ← analiza Groq raz dziennie (cron 6:00 UTC)
+strategy_evolution.py     ← backtest 100 kombinacji (cron poniedziałek 7:00 UTC)
+reset_firebase.py         ← reset portfela do $200
+safe_restart.sh           ← ostrzeżenie przed restartem w godzinach 6-22 UTC
+
+channels/
+  base_channel.py         ← klasa bazowa
+  registry.py             ← rejestr handlerów
+  crypto_beast.py         ← 1982472141
+  crypto_monk.py          ← 1552004524
+  crypto_world.py         ← 1652601224
+  binance_360.py          ← 1553551852
+  predictum.py            ← 1456872361
+  boom_boom.py            ← 1756316676
+  crypto_hustle.py        ← 1743387695
+  crypto_bulls.py         ← 1700533698
+  crypto_devil.py         ← 1598691683
+  crypto_conquered.py     ← 1505272164
+  whales_pump.py          ← 1594522150
+
+logs/                     ← PM2 logi
+firebase-key.json         ← credentials Firebase
+.env                      ← zmienne środowiskowe
+```
+
+### GitHub repo → Vercel
+```
+src/
+  App.jsx                 ← cały frontend (~3100 linii, jeden plik)
+  main.jsx
+  index.css
+index.html
+vite.config.js
+```
+
+---
+
+## 4. PM2 Ecosystem
+
+```
+ID | Nazwa              | Status
+0  | signal-bot         | online  ← główny bot
+1  | kurator-server     | online  ← osobny projekt
+2  | market-regime      | online
+3  | shadow-portfolio   | online
+```
+
+**Komendy:**
+```bash
+pm2 reload signal-bot          # ← ZAWSZE używaj reload, nie restart
+pm2 logs signal-bot --lines 100
+pm2 status
+```
+
+**ZASADA: Restartuj bota TYLKO po 22:00 UTC (= po 00:00 czasu polskiego)**
+
+---
+
+## 5. Kanały Telegram (11 sztuk)
+
+| ID | Nazwa | Specyfika |
+|----|-------|-----------|
+| 1700533698 | Crypto Bulls | standardowy |
+| 1982472141 | Crypto BEAST | zapowiedź ($TOKEN SHORT NOW) + edycja na pełny sygnał |
+| 1552004524 | Crypto MONK | po angielsku (bot widzi oryginał), format #SHORT/#LONG PREMIUM |
+| 1456872361 | Predictum | standardowy |
+| 1553551852 | Binance 360 | odrzuca VIP Scalp/MTC forwarded (reklamy) |
+| 1756316676 | Boom Boom | format PAIR:/Position:/Entry Zone:/Leverage:/Take Profit Targets:/Stop Loss: |
+| 1743387695 | Crypto Hustle | standardowy |
+| 1652601224 | Crypto World | najbardziej złożony — wiele formatów, zapowiedzi + pełne sygnały |
+| 1598691683 | Crypto Devil | format Coin:#SYMBOL + Target 1-6 + StopLoss |
+| 1505272164 | Crypto Conquered | standardowy |
+| 1594522150 | Whales Pump | format z **, separator _, dźwignia zawsze 20x |
+
+---
+
+## 6. Firebase Firestore — kolekcje
+
+| Kolekcja | Zawartość | Reguły |
+|----------|-----------|--------|
+| signals | sparsowane sygnały | read: true |
+| signals_summary | skrót sygnału | read: true |
+| non_signals | odrzucone wiadomości | read: true |
+| simulation | portfolio (doc: portfolio) | read,write: true |
+| simulation_positions | otwarte/zamknięte pozycje | read,write: true |
+| simulation_log | log zdarzeń (OPEN/CLOSE/TP/SL/REJECT) | read,write: true |
+| channel_stats | statystyki per kanał | read: true |
+| channel_names | mapowanie ID→nazwa | read,write: true |
+| bot_health | heartbeat bota | read: true |
+| market_regime | BTC/F&G/dominacja | read: true |
+| shadow_portfolios | 6 strategii shadow | read: true |
+| shadow_positions | pozycje shadow | read: true |
+| ai_mentor | analiza AI | read: true |
+| strategy_evolution | backtest wyniki | read: true |
+
+---
+
+## 7. Parametry symulacji
+
+```
+Kapitał początkowy:  $200
+Ryzyko per trade:    4% = $8
+Slippage:            0.5%
+Max otwarte pozycje: bez limitu
+Min kapitał:         0 (wyłączone)
+```
+
+**Front-loaded TP (nowe pozycje):**
+- 1 TP → 100%
+- 2 TP → 65% / 35%
+- 3 TP → 50% / 30% / 20%
+- 4 TP → 40% / 30% / 20% / 10%
+- 5 TP → 35% / 25% / 20% / 15% / 5%
+- 6 TP → 30% / 25% / 20% / 15% / 7% / 3%
+
+*Wyjątek: gdy sygnał jawnie podaje różne % (np. Close 80%/20%) — zachowaj oryginalne*
+
+**3-stopniowy Trailing SL:**
+- Po TP1 → SL = (entry + original_SL) / 2 (połowa drogi)
+- Po TP2 → SL = entry (Break-Even)
+- Po TP3 → SL = cena TP1 (zysk zabezpieczony)
+
+**DCA (Entry Range):**
+- LONG: wejście po MAX, DCA po MIN gdy cena spadnie
+- SHORT: wejście po MIN, DCA po MAX gdy cena wzrośnie
+- DCA kwota: 2% kapitału ($4)
+- Po DCA: nowa cena wejścia = VWAP (średnia ważona)
+
+**Walidacja MEXC:**
+- Jeśli cena MEXC różni się >1.5x od entry sygnału → odrzuć pozycję
+- Auto-mapping symboli: BROCCOLI714 → BROCCOLI (usuwa cyfry z końca)
+
+---
+
+## 8. Mechanizm odbierania wiadomości (dual-track)
+
+### Track 1: Telethon Events (szybki)
+- Eventy w czasie rzeczywistym
+- Problem: czasem "milczy" przez długi czas (bug Telethon)
+
+### Track 2: Polling Loop (backup)
+- Co 60 sekund odpytuje każdy kanał o ostatnie 10 wiadomości
+- Przetwarza wiadomości nie starsze niż 10 minut
+- Deduplication przez `_processed_ids` set
+- W logach: `[POLL] 🔄 Odzyskano wiadomość CHANNEL_ID msg_id=X (wiek: Xs)`
+
+### Keepalive
+- Co 30 sekund: `GetDialogsRequest` do Telegrama
+- Wymusza dostarczenie pending updates
+- W logach: `[BOT] ✓ Keepalive OK`
+
+---
+
+## 9. Logika zapowiedzi → pełny sygnał
+
+Niektóre kanały (BEAST, Crypto World) wysyłają najpierw zapowiedź bez TP/SL,
+potem pełny sygnał (edycja lub nowa wiadomość).
+
+**Bot aktualizuje istniejącą pozycję gdy:**
+1. Pozycja nie ma SL, a nowy sygnał ma SL
+2. Pozycja ma ≤1 TP bez SL, a nowy sygnał ma ≥2 TP z SL
+3. Klasyczna zapowiedź (0 TP, 0 SL) → cokolwiek z TP lub SL
+
+---
+
+## 10. Frontend — struktura zakładek
+
+```
+App.jsx (~3100 linii, jeden plik)
+
+Zakładki:
+1. 📊 Portfolio    ← RiskPanel (drawdown alert), statystyki, ostatnie zamknięte
+2. 🔓 Otwarte     ← tabela pozycji z rozwijalnymi szczegółami TP/SL
+3. 🔒 Zamknięte   ← ClosedTable z ClosedPositionDetail (klik → historia TP/SL)
+4. 📈 Kanały      ← ChannelStats — win rate, trades per kanał
+5. 📡 Sygnały     ← lista sygnałów z Firebase
+6. 📝 Log         ← AdvancedLog — filtry po kanale/typie, statystyki dnia
+7. 🔧 Debug       ← raw data Firebase
+8. 🧠 Intelligence← Market Regime, AI Mentor, Strategy Evolution, Anatomia Przegranej
+9. 🎵 Sentiment   ← temperatura rynku, histogram 24h
+10. 👥 Shadow     ← 6 kart strategii shadow, ranking P&L
+```
+
+**Dane Firebase w App.jsx (onSnapshot — real-time):**
+- `simulation/portfolio` → kapitał, P&L, W/L
+- `simulation_positions` → otwarte i zamknięte pozycje
+- `simulation_log` → log zdarzeń (limit 300)
+- `channel_stats` → statystyki kanałów
+- `signals` → lista sygnałów
+- `shadow_portfolios` + `shadow_positions` → shadow
+- `market_regime` → reżim rynku
+- `ai_mentor` → analiza AI
+- `channel_names` → mapowanie ID→nazwa
+
+---
+
+## 11. Shadow Portfolio — 6 strategii
+
+| ID | Nazwa | Ryzyko | Specyfika |
+|----|-------|--------|-----------|
+| conservative | 🛡️ Konserwatywna | 1% | max 20x, kanały WR>50% |
+| current | ⚖️ Obecna (3%) | 3% | mirror starej strategii |
+| aggressive | 🚀 Agresywna | 5% | wszystkie kanały |
+| breakeven | 🔒 Break-Even | 5% | SL→BE po TP1 |
+| front_loaded | 💰 Front-Loaded | 3% | TP1=40%, TP2=35%, TP3=25% |
+| sniper | 🎯 Sniper | 2% | max 30x, WR>55%, BE po TP1 |
+
+---
+
+## 12. UI Conventions
+
+- **Kolory:** cyan `#00e5ff` (akcent), purple `#ce93d8`, zielony `#00e676`, czerwony `#ff5252`
+- **Tło:** `#0d0f17` (główne), `#1c2030` (karty), `#2e3350` (border)
+- **Font:** monospace dla liczb i cen
+- **Styl:** dark neon, cyan/purple palette
+- **Formatowanie:** inline styles (bez zewnętrznego CSS), Tailwind NIE używany w App.jsx
+- **Komponenty:** funkcyjne React z hooks, jeden plik App.jsx
+
+---
+
+## 13. Co zostało zrobione w tej sesji
+
+### Krytyczne naprawy:
+1. **Polling loop** — backup dla eventów Telethon, odpytuje kanały co 60s
+2. **Keepalive co 30s** — `GetDialogsRequest` zamiast `get_me()`
+3. **Walidacja ceny MEXC** — ratio 1.5x przed otwarciem i podczas aktualizacji
+4. **Auto-mapping symboli** — BROCCOLI714→BROCCOLI, auto-discovery cyfr
+
+### Symulacja:
+5. **Front-loaded TP** — malejące % zamiast równego podziału
+6. **3-stopniowy Trailing SL** — 50% → BE → TP1
+7. **DCA** — wejście po pierwszej cenie + dokładanie po drugiej
+8. **Naprawa tp_close_pct** — UnboundLocalError gdy 0 TP
+9. **Naprawa has_custom** — Groq dodawał równe % które były traktowane jako custom
+10. **Aktualizacja zapowiedzi** — rozszerzono warunki (1 TP bez SL → pełny sygnał)
+
+### Handlery kanałów:
+11. **Whales Pump** — nowy handler, obsługa `**` markdown, separator `_`, dźwignia 20x
+12. **Boom Boom** — przepisany handler dla nowego formatu
+13. **Crypto World** — dodano formaty SIGNAL ALERT, link bitunix nie blokuje
+14. **Binance 360** — blokada VIP Scalp/MTC forwarded
+
+### Frontend:
+15. **AdvancedLog** — filtry po kanale/typie, statystyki dnia, preview odrzuconych
+16. **ClosedPositionDetail** — rozwijane szczegóły zamkniętych pozycji (TP historia, SL, słowne podsumowanie)
+17. **Throttling odrzuceń** — max 1 zapis do Firebase per kanał co 5 minut
+18. **Import React** — naprawiony crash `React.Fragment`
+19. **channel_names** — mapowanie ID→nazwy w Firebase
+
+---
+
+## 14. Aktualny stan
+
+### ✅ Działa:
+- Polling loop (co 60s, okno 10 minut)
+- Keepalive co 30s
+- Front-loaded TP dla nowych pozycji
+- 3-stopniowy Trailing SL
+- DCA dla entry range
+- Walidacja MEXC 1.5x
+- Wszystkie 11 handlerów kanałów
+- AdvancedLog z filtrami
+- ClosedPositionDetail z historią
+
+### ⚠️ Do monitorowania:
+- Polling skutecznie odzyskuje pominięte sygnały (weryfikuj w logach)
+- Aktualizacja zapowiedzi→pełny sygnał (nowa logika, wymaga testów)
+- Crypto World link bitunix (Groq może nadal odrzucać)
+
+### ❌ Znane problemy:
+- Sygnały podczas restartu bota są nieodwracalnie tracone
+- Okno polling 10 minut nie pomoże gdy restart trwa >10 minut
+
+### 📋 Pending (cron jobs do ustawienia):
+```bash
+0 6 * * * cd /home/signal-bot && python3 ai_mentor.py >> logs/mentor.log 2>&1
+0 7 * * 1 cd /home/signal-bot && python3 strategy_evolution.py >> logs/evolution.log 2>&1
+```
+
+---
+
+## 15. Przydatne komendy
+
+### VPS — monitoring:
+```bash
+pm2 status
+pm2 logs signal-bot --lines 100
+pm2 logs signal-bot --lines 200 | grep -E "POLL|Keepalive|OPEN|SIM|ERROR"
+pm2 logs signal-bot --lines 500 | grep -v "PRICE\|Brak" | head -50
+```
+
+### VPS — deployment (tylko po 22:00 UTC!):
+```bash
+pm2 reload signal-bot          # NIE używaj pm2 restart
+```
+
+### Firebase — diagnostyka:
+```bash
+cd /home/signal-bot
+python3 -c "
+import firebase_admin
+from firebase_admin import credentials, firestore
+from dotenv import load_dotenv; load_dotenv()
+cred = credentials.Certificate('firebase-key.json')
+firebase_admin.initialize_app(cred)
+db = firestore.client()
+print(db.collection('simulation').document('portfolio').get().to_dict())
+"
+```
+
+### Firebase — reset portfela:
+```bash
+python3 reset_firebase.py
+```
+
+### Firebase — manual fix pozycji:
+```bash
+python3 -c "
+import firebase_admin
+from firebase_admin import credentials, firestore
+from dotenv import load_dotenv; load_dotenv()
+cred = credentials.Certificate('firebase-key.json')
+firebase_admin.initialize_app(cred)
+db = firestore.client()
+# Aktualizuj pozycję po ID:
+db.collection('simulation_positions').document('POSITION_ID').update({
+    'stop_loss': 0.1234,
+    'take_profits': [{'level':1,'price':0.15,'close_pct':80},{'level':2,'price':0.18,'close_pct':20}],
+})
+print('OK')
+"
+```
+
+### Firebase — channel_names (jeśli pokazują numerki):
+```bash
+python3 -c "
+import firebase_admin
+from firebase_admin import credentials, firestore
+from dotenv import load_dotenv; load_dotenv()
+cred = credentials.Certificate('firebase-key.json')
+firebase_admin.initialize_app(cred)
+db = firestore.client()
+names = {
+    '1505272164':'Crypto Conquered','1598691683':'Crypto Devil',
+    '1594522150':'Whales Pump','1756316676':'Boom Boom',
+    '1700533698':'Crypto Bulls','1982472141':'Crypto BEAST',
+    '1552004524':'Crypto MONK','1456872361':'Predictum',
+    '1553551852':'Binance 360','1743387695':'Crypto Hustle',
+    '1652601224':'Crypto World',
+}
+for ch_id, name in names.items():
+    db.collection('channel_names').document(ch_id).set({'name':name,'channel_id':ch_id})
+    print(f'OK {name}')
+"
+```
+
+---
+
+## 16. Zmienne środowiskowe (.env)
+
+```
+TELEGRAM_API_ID=...
+TELEGRAM_API_HASH=...
+TELEGRAM_PHONE=...
+GROQ_API_KEY=...
+FIREBASE_CREDENTIALS_PATH=firebase-key.json
+TELEGRAM_CHANNELS=1700533698,1982472141,1552004524,1456872361,1553551852,1756316676,1743387695,1652601224,1598691683,1505272164,1594522150
+SIM_CAPITAL=200
+SIM_RISK_PCT=4.0
+SIM_SLIPPAGE_PCT=0.5
+SIM_BE_AFTER_TP=2
+SIM_MAX_OPEN=0
+SIM_MIN_CAPITAL=0
+```
+
+---
+
+## 17. Ważne decyzje projektowe
+
+- **Jeden plik App.jsx** — cały frontend w jednym pliku, brak osobnych komponentów
+- **Inline styles** — nie używamy zewnętrznych plików CSS ani Tailwind klas w App.jsx
+- **Groq zamiast OpenAI** — szybszy, tańszy, wystarczający do parsowania
+- **MEXC API** — brak klucza, tylko publiczne endpointy
+- **Telethon user account** — nie bot API, bo kanały są prywatne/publiczne z ograniczeniami
+- **Firebase Firestore** — real-time updates przez onSnapshot w React
+- **Vercel** — auto-deploy z GitHub przy każdym commicie
+- **PM2** — process manager na VPS, auto-restart po crashu
+- **DRY RUN** — symulacja, nie prawdziwy trading
+
+---
+
+## PROMPT STARTOWY
+
+Wklej to jako pierwszą wiadomość w nowym czacie:
+
+---
+
+```
+Kontynuujemy pracę nad projektem "Telegram Signal Bot" — systemem monitorowania sygnałów tradingowych.
+
+STACK:
+- Bot: Python 3.12 + Telethon na VPS Ubuntu, PM2 (procesy: signal-bot, market-regime, shadow-portfolio)
+- AI: Groq API (llama-3.3-70b-versatile) do parsowania sygnałów
+- DB: Firebase Firestore (plan Blaze)
+- Frontend: React/Vite → Vercel, jeden plik App.jsx (~3100 linii)
+- Ceny: MEXC public API
+
+PLIKI NA VPS /home/signal-bot/:
+bot.py, simulation.py, price_updater.py, health_monitor.py + channels/ (11 handlerów)
+
+KANAŁY (11): Crypto Bulls(1700533698), Crypto BEAST(1982472141), Crypto MONK(1552004524), 
+Predictum(1456872361), Binance 360(1553551852), Boom Boom(1756316676), Crypto Hustle(1743387695), 
+Crypto World(1652601224), Crypto Devil(1598691683), Crypto Conquered(1505272164), Whales Pump(1594522150)
+
+PARAMETRY SYMULACJI: $200 kapitał, 4% ryzyko=$8/trade, slippage 0.5%
+
+FRONT-LOADED TP: 3TP→50/30/20%, 4TP→40/30/20/10%, 5TP→35/25/20/15/5%, 6TP→30/25/20/15/7/3%
+3-STOPNIOWY SL: po TP1→50% drogi, po TP2→BE, po TP3→SL na cenę TP1
+DCA: entry range → wejście po pierwszej cenie, dokładanie 2% po drugiej
+WALIDACJA MEXC: ratio 1.5x max między ceną MEXC a entry sygnału
+
+MECHANIZM: dual-track — Telethon events + polling co 60s (backup), keepalive co 30s (GetDialogsRequest)
+
+FRONTEND (zakładki): Portfolio, Otwarte, Zamknięte (z historią TP/SL po kliknięciu), 
+Kanały, Sygnały, Log (AdvancedLog z filtrami), Debug, Intelligence, Sentiment, Shadow (6 strategii)
+
+DEPLOYMENT: pm2 reload signal-bot (NIE restart!), tylko po 22:00 UTC
+App.jsx → GitHub → Vercel auto-deploy
+
+Co chcesz dzisiaj zrobić?
+```
