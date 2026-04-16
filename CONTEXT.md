@@ -429,6 +429,55 @@ SIM_MIN_CAPITAL=0
 - **DRY RUN** — symulacja, nie prawdziwy trading
 
 ---
+## 18. Sesja 16.04.2026
+
+### Diagnoza i weryfikacja systemu:
+- Potwierdzono że obliczanie ryzyka działa poprawnie — bot pobiera 4% z `current_capital`
+  (wolnego kapitału w momencie otwarcia pozycji), nie z equity. To zamierzone zachowanie.
+- Potwierdzono że ekspozycja ($22.63) = suma `allocated_usd` otwartych pozycji ✅
+- TP1 XRP = +$0.00 to był tylko problem wyświetlania — `.toFixed(2)` zaokrągla małe kwoty.
+  Wartość w Firestore jest poprawna. Naprawa kosmetyczna w App.jsx (`.toFixed(4)`).
+- TP1 XRP był prawie zerowy bo sygnał SHORT miał TP1 ($1.3929) ≈ entry ($1.3930) — słaby
+  sygnał z Binance 360, nie bug kodu.
+
+### Nowe skrypty na VPS (/home/signal-bot/):
+
+**fix_position.py** — uniwersalny skrypt do ręcznej aktualizacji pozycji gdy bot nie
+zaktualizuje jej automatycznie. Edytuj tylko sekcję KONFIGURACJA na górze pliku:
+- POSITION_ID — ID z Firestore (zakładka Debug lub skrypt poniżej)
+- SYMBOL, DIRECTION, ENTRY, LEVERAGE, STOP_LOSS
+- TAKE_PROFITS — lista (poziom, cena, % zamknięcia), suma % musi = 100
+- RESET_SL_STAGE, RESET_TPS_HIT, RESET_PARTIAL_CLOSES — opcjonalne flagi
+
+Uruchomienie:
+```bash
+cd /home/signal-bot
+python3 fix_position.py
+```
+
+**Sprawdzenie otwartych pozycji w Firestore:**
+```bash
+cd /home/signal-bot
+python3 -c "
+import firebase_admin
+from firebase_admin import credentials, firestore
+from dotenv import load_dotenv; load_dotenv()
+cred = credentials.Certificate('firebase-key.json')
+firebase_admin.initialize_app(cred)
+db = firestore.client()
+docs = db.collection('simulation_positions').where('status','==','OPEN').stream()
+for d in docs:
+    data = d.to_dict()
+    print(f'{d.id} | {data.get(\"symbol\")} | {data.get(\"signal_type\")} | entry: {data.get(\"entry_price\")} | alloc: {data.get(\"allocated_usd\")}')
+"
+```
+
+### Uwagi:
+- ID pozycji w zakładce Debug może pokazywać ID dokumentu sygnału, nie pozycji —
+  zawsze weryfikuj ID przez skrypt powyżej
+- Bot Crypto World nie zaktualizował automatycznie pozycji ORDI/USDT (brak TP/SL
+  w momencie otwarcia) — użyto fix_position.py do ręcznego uzupełnienia danych
+
 
 ## PROMPT STARTOWY
 
