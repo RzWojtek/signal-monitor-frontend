@@ -478,6 +478,69 @@ for d in docs:
 - Bot Crypto World nie zaktualizował automatycznie pozycji ORDI/USDT (brak TP/SL
   w momencie otwarcia) — użyto fix_position.py do ręcznego uzupełnienia danych
 
+## 19. Sesja 17.04.2026
+
+### Diagnoza i weryfikacja systemu (cd.):
+- Potwierdzono że obliczanie ryzyka działa poprawnie — $10.05 = 4% z $251.21 ✅
+- TP1 XRP = +$0.00 to był tylko problem wyświetlania `.toFixed(2)` — wartość w Firestore poprawna
+
+### Naprawy simulation.py:
+1. **should_update rozszerzony o 4. warunek** — nowy pełny sygnał dla istniejącej pozycji
+   (inne entry/leverage/liczba TP) teraz aktualizuje pozycję zamiast ją pomijać.
+   Dotychczas Crypto World wysyłał kilka wersji ORDI z różnymi parametrami — bot odrzucał
+   wszystkie po pierwszym. Teraz aktualizuje entry, leverage, TP, SL.
+2. **SYM_MAP rozszerzony o tokeny z prefiksem 1000** — 1000SATS/USDT → SATSUSDT na MEXC.
+   Dotychczas price_updater nie znajdował ceny → pozycja nie aktualizowała TP/SL.
+   Dodane: 1000SATS, 1000PEPE, 1000FLOKI, 1000BONK, 1000X, 1000CAT, 1000MOG, 1000BABYDOGE
+
+### Naprawy price_updater.py:
+3. **SYMBOL_MAP rozszerzony** — ta sama lista co w simulation.py (muszą być zsynchronizowane)
+4. **Auto-discovery prefix 1000** — jeśli symbol zaczyna się od "1000" i nie ma go na MEXC,
+   automatycznie próbuje bez prefixu i zapamiętuje mapowanie w runtime
+
+### Naprawy handlerów kanałów:
+5. **crypto_world.py** — dodany TYP 7 w prompcie: kilka pełnych sygnałów dla tego samego
+   symbolu (np. ORDI x3) traktowane jako osobne LONG/SHORT, nie UPDATE
+6. **crypto_devil.py** — dodany FORMAT 2 (uproszczony bez Coin/Leverage):
+   "AVAX/USD SELL / Entry : $ 9.51 / Target1: $ 9.20 / SL : $ 9.80"
+   pre_filter rozszerzony o: "SYMBOL/USD SELL", "SL :", "Target1:"
+7. **crypto_monk.py** — preprocess_text usuwa emoji ze WSZYSTKICH linii (nie tylko z keyword-lines).
+   Dodany Przykład 4 (NEAR/USDT SHORT 30x). Doprecyzowane parsowanie:
+   emoji między tagami nie przeszkadzają, "Take Profit Targets:" z lub bez spacji przed ":"
+8. **whales_pump.py** — dodane Przykłady 5 i 6 (format bez ** z separatorem "-", 4 targety,
+   symbol jednoliterowy "M"). Reguły: symbol może być 1-literowy → dodaj /USDT,
+   Target z separatorem "-" parsuj tak samo jak "_"
+
+### Nowe skrypty na VPS:
+9. **fix_position.py** — uniwersalny skrypt do ręcznej aktualizacji pozycji.
+   Edytuj sekcję KONFIGURACJA (POSITION_ID, SYMBOL, DIRECTION, ENTRY, LEVERAGE,
+   STOP_LOSS, TAKE_PROFITS), waliduje sumę % TP, pokazuje stan przed zapisem.
+   Uruchomienie: `python3 fix_position.py`
+
+### Diagnostyka — sprawdzenie otwartych pozycji:
+```bash
+cd /home/signal-bot
+python3 -c "
+import firebase_admin
+from firebase_admin import credentials, firestore
+from dotenv import load_dotenv; load_dotenv()
+cred = credentials.Certificate('firebase-key.json')
+firebase_admin.initialize_app(cred)
+db = firestore.client()
+docs = db.collection('simulation_positions').where('status','==','OPEN').stream()
+for d in docs:
+    data = d.to_dict()
+    print(f'{d.id} | {data.get(\"symbol\")} | {data.get(\"signal_type\")} | entry: {data.get(\"entry_price\")} | alloc: {data.get(\"allocated_usd\")}')
+"
+```
+
+### Uwagi:
+- ID pozycji w zakładce Debug może pokazywać ID sygnału, nie pozycji —
+  zawsze weryfikuj przez skrypt powyżej
+- SYM_MAP w simulation.py i price_updater.py muszą być zawsze zsynchronizowane —
+  gdy dodajesz nowy wyjątek, dodaj go w obu plikach
+- Tokeny z prefiksem 1000 (konwencja Binance/Bybit) MEXC notuje bez prefixu
+
 
 ## PROMPT STARTOWY
 
