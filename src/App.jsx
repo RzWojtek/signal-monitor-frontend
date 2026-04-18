@@ -2840,6 +2840,203 @@ function AdvancedLog({events, channelNames, channelStats}) {
   );
 }
 
+
+// ─── Bybit Dashboard ───────────────────────────────────────────────────────────
+function BybitDashboard({portfolio, openPos, closedPos, logEvents, channelNames}){
+  const [logTab, setLogTab] = useState("positions");
+  const p = portfolio || {};
+  const available = p.available_usd ?? 0;
+  const walletBal = p.wallet_balance ?? 0;
+  const totalPnl  = p.total_pnl ?? 0;
+  const realPnl   = p.realized_pnl ?? 0;
+  const unreal    = p.unrealized_pnl ?? 0;
+  const pnlPct    = p.total_pnl_pct ?? 0;
+  const margin    = p.margin_used ?? 0;
+  const wins      = p.wins ?? 0;
+  const losses    = p.losses ?? 0;
+  const wr        = p.total_trades ? round2(wins/p.total_trades*100) : 0;
+  const isPos     = totalPnl >= 0;
+  const lastErr   = p.last_error;
+
+  const GREEN="#00e676", RED="#ff5252", CYAN="#00e5ff", PURPLE="#ce93d8";
+  const YELLOW="#ffd740", CARD="#1c2030", BORDER="#2e3350", BG="#0d0f17";
+
+  return(
+    <div>
+      {/* Error banner */}
+      {lastErr && (
+        <div style={{background:"rgba(255,82,82,.1)",border:"1px solid rgba(255,82,82,.4)",
+          borderRadius:8,padding:"10px 16px",marginBottom:16,display:"flex",alignItems:"center",gap:10}}>
+          <span style={{fontSize:16}}>❌</span>
+          <div>
+            <div style={{color:RED,fontWeight:700,fontSize:12}}>Błąd Bybit</div>
+            <div style={{color:"#ff8a80",fontSize:11,fontFamily:"monospace"}}>{lastErr}</div>
+            {p.last_error_at&&<div style={{color:"#5c6494",fontSize:10}}>{new Date(p.last_error_at).toLocaleTimeString("pl")}</div>}
+          </div>
+        </div>
+      )}
+
+      {/* Header metryki */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:10,marginBottom:16}}>
+        {[
+          {l:"Wallet Balance",  v:`$${walletBal.toFixed(2)}`,      c:"#e8eaf6"},
+          {l:"Dostępny Margin", v:`$${available.toFixed(2)}`,       c:CYAN},
+          {l:"Margin w użyciu", v:`$${margin.toFixed(2)}`,          c:margin>0?YELLOW:"#5c6494"},
+          {l:"Całkowity P&L",   v:`${isPos?"+":""}$${totalPnl.toFixed(2)} (${pnlPct}%)`, c:isPos?GREEN:RED},
+          {l:"Zrealizowany",    v:`${realPnl>=0?"+":""}$${realPnl.toFixed(2)}`, c:realPnl>=0?GREEN:RED},
+          {l:"Niezrealizowany", v:`${unreal>=0?"+":""}$${unreal.toFixed(2)}`,   c:unreal>=0?GREEN:RED},
+          {l:"Win Rate",        v:`${wr}%`,                          c:wr>=55?GREEN:wr>=40?YELLOW:RED},
+          {l:"Trades",          v:`${wins}W / ${losses}L`,           c:"#9898b8"},
+          {l:"Otwarte poz.",    v:`${openPos.length}`,               c:openPos.length>0?CYAN:"#5c6494"},
+        ].map(s=>(
+          <div key={s.l} style={{background:BG,borderRadius:8,padding:"10px 12px",border:`1px solid ${BORDER}`}}>
+            <div style={{color:"#5c6494",fontSize:10,marginBottom:4}}>{s.l}</div>
+            <div style={{color:s.c,fontFamily:"monospace",fontSize:13,fontWeight:700}}>{s.v}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Sub-tabs */}
+      <div style={{display:"flex",gap:4,marginBottom:16}}>
+        {[["positions","📂 Pozycje"],["closed","🔒 Historia"],["log","📝 Log"]].map(([id,label])=>(
+          <button key={id} onClick={()=>setLogTab(id)} style={{
+            padding:"6px 14px",borderRadius:6,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,
+            background:logTab===id?CYAN:"#2e3350",color:logTab===id?"#0d0f17":"#9898b8",
+          }}>{label}</button>
+        ))}
+      </div>
+
+      {/* Otwarte pozycje */}
+      {logTab==="positions"&&(
+        <div>
+          {openPos.length===0&&(
+            <div style={{color:"#5c6494",textAlign:"center",padding:40,fontFamily:"monospace"}}>
+              Brak otwartych pozycji na Bybit
+            </div>
+          )}
+          {openPos.map(pos=>{
+            const isLong=["LONG","SPOT_BUY"].includes(pos.signal_type);
+            const pnl=pos.unrealized_pnl??0;
+            const pnlPct=pos.unrealized_pnl_pct??0;
+            const isP=pnl>=0;
+            return(
+              <div key={pos.id} style={{background:CARD,borderRadius:10,padding:"14px 16px",
+                marginBottom:10,border:`1px solid ${isLong?"#00e67633":"#ff525233"}`}}>
+                <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:10}}>
+                  <span style={{color:CYAN,fontWeight:800,fontSize:14}}>{pos.symbol}</span>
+                  <span style={{background:isLong?GREEN:RED,color:"#0d0f17",
+                    fontSize:10,fontWeight:800,padding:"2px 8px",borderRadius:4}}>
+                    {pos.signal_type}
+                  </span>
+                  <span style={{color:"#9898b8",fontSize:11}}>x{pos.leverage}</span>
+                  <span style={{color:"#9898b8",fontSize:11}}>alloc: ${(pos.allocated_usd||0).toFixed(2)}</span>
+                  <span style={{color:isP?GREEN:RED,fontWeight:700,fontSize:13,marginLeft:"auto"}}>
+                    {isP?"+":""}{pnl.toFixed(4)}$ ({pnlPct.toFixed(2)}%)
+                  </span>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))",gap:8,fontSize:11,fontFamily:"monospace"}}>
+                  <div><span style={{color:"#5c6494"}}>Entry: </span><span style={{color:"#e8eaf6"}}>${pos.entry_price}</span></div>
+                  <div><span style={{color:"#5c6494"}}>Cena: </span><span style={{color:CYAN}}>${pos.current_price||"—"}</span></div>
+                  <div><span style={{color:"#5c6494"}}>SL: </span><span style={{color:RED}}>${pos.stop_loss||"—"}</span></div>
+                  <div><span style={{color:"#5c6494"}}>TP: </span><span style={{color:YELLOW}}>{(pos.tps_hit||[]).length}/{(pos.take_profits||[]).length}</span></div>
+                  <div><span style={{color:"#5c6494"}}>Kanał: </span><span style={{color:PURPLE}}>{channelNames[pos.channel]||pos.channel}</span></div>
+                  <div><span style={{color:"#5c6494"}}>Otwarto: </span><span style={{color:"#9898b8"}}>{pos.opened_at?new Date(pos.opened_at).toLocaleTimeString("pl"):"-"}</span></div>
+                </div>
+                {/* TP lista */}
+                {(pos.take_profits||[]).length>0&&(
+                  <div style={{marginTop:10,display:"flex",gap:6,flexWrap:"wrap"}}>
+                    {pos.take_profits.map(tp=>{
+                      const hit=(pos.tps_hit||[]).includes(tp.level);
+                      return(
+                        <span key={tp.level} style={{
+                          fontSize:10,fontFamily:"monospace",padding:"2px 8px",borderRadius:4,
+                          background:hit?"rgba(0,230,118,.15)":"rgba(255,255,255,.05)",
+                          color:hit?GREEN:"#5c6494",
+                          border:`1px solid ${hit?GREEN+"44":BORDER}`,
+                        }}>
+                          {hit?"✓ ":""} TP{tp.level}: ${tp.price} ({tp.close_pct}%)
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Historia zamkniętych */}
+      {logTab==="closed"&&(
+        <div>
+          {closedPos.length===0&&(
+            <div style={{color:"#5c6494",textAlign:"center",padding:40}}>Brak zamkniętych pozycji</div>
+          )}
+          <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,fontFamily:"monospace"}}>
+            <thead>
+              <tr style={{color:"#5c6494",borderBottom:`1px solid ${BORDER}`}}>
+                {["Symbol","Typ","Entry","Exit","PnL","Powód","Kanał","Zamknięto"].map(h=>(
+                  <th key={h} style={{padding:"6px 8px",textAlign:"left",fontWeight:600}}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {closedPos.map(pos=>{
+                const pnl=pos.realized_pnl??0;
+                const isP=pnl>=0;
+                const isLong=["LONG","SPOT_BUY"].includes(pos.signal_type);
+                return(
+                  <tr key={pos.id} style={{borderBottom:`1px solid ${BORDER}22`}}>
+                    <td style={{padding:"7px 8px",color:CYAN,fontWeight:700}}>{pos.symbol}</td>
+                    <td style={{padding:"7px 8px",color:isLong?GREEN:RED}}>{pos.signal_type}</td>
+                    <td style={{padding:"7px 8px",color:"#e8eaf6"}}>${pos.entry_price}</td>
+                    <td style={{padding:"7px 8px",color:"#e8eaf6"}}>${pos.close_price||"—"}</td>
+                    <td style={{padding:"7px 8px",color:isP?GREEN:RED,fontWeight:700}}>
+                      {isP?"+":""}{pnl.toFixed(4)}$
+                    </td>
+                    <td style={{padding:"7px 8px",color:YELLOW}}>{pos.close_reason||"—"}</td>
+                    <td style={{padding:"7px 8px",color:PURPLE}}>{channelNames[pos.channel]||pos.channel}</td>
+                    <td style={{padding:"7px 8px",color:"#5c6494"}}>
+                      {pos.closed_at?new Date(pos.closed_at).toLocaleTimeString("pl"):"—"}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Log */}
+      {logTab==="log"&&(
+        <div>
+          {logEvents.length===0&&<div style={{color:"#5c6494",textAlign:"center",padding:40}}>Log pusty</div>}
+          {logEvents.map(e=>{
+            const isErr=e.is_error||e.event_type==="ERROR";
+            const isOpen=e.event_type==="OPEN";
+            const isClose=e.event_type==="CLOSE"||e.event_type?.includes("TP");
+            const c=isErr?RED:isOpen?GREEN:isClose?CYAN:YELLOW;
+            return(
+              <div key={e.id} style={{display:"flex",gap:10,alignItems:"flex-start",
+                padding:"7px 0",borderBottom:`1px solid ${BORDER}22`,fontSize:11,fontFamily:"monospace"}}>
+                <span style={{color:"#5c6494",flexShrink:0,fontSize:10}}>
+                  {e.timestamp_iso?new Date(e.timestamp_iso).toLocaleTimeString("pl"):"—"}
+                </span>
+                <span style={{background:c+"22",color:c,padding:"1px 6px",borderRadius:3,
+                  fontSize:10,fontWeight:700,flexShrink:0,minWidth:70,textAlign:"center"}}>
+                  {e.event_type}
+                </span>
+                <span style={{color:CYAN,flexShrink:0}}>{e.symbol}</span>
+                <span style={{color:"#9898b8",flex:1}}>{e.message}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Tab Bar ───────────────────────────────────────────────────────────────────
 const TABS=[
   {id:"portfolio",label:"📊 Portfolio"},
@@ -2852,6 +3049,7 @@ const TABS=[
   {id:"intelligence",label:"🧠 Intelligence"},
   {id:"sentiment",label:"🎵 Sentiment"},
   {id:"shadow",label:"👥 Shadow"},
+  {id:"bybit",label:"🟡 Bybit"},
 ];
 
 function TabBar({active,onChange}){
@@ -3009,6 +3207,32 @@ export default function App(){
       setShadowPositions(snap.docs.map(d=>({id:d.id,...d.data()})));
     });
   },[]);
+  // ── Bybit state ─────────────────────────────────────────────────────────────
+  const [bybitPortfolio, setBybitPortfolio] = useState(null);
+  const [bybitOpenPos, setBybitOpenPos] = useState([]);
+  const [bybitClosedPos, setBybitClosedPos] = useState([]);
+  const [bybitLog, setBybitLog] = useState([]);
+
+  useEffect(()=>onSnapshot(doc(db,"bybit_portfolio","portfolio"),snap=>{
+    if(snap.exists()) setBybitPortfolio(snap.data());
+  }),[]);
+
+  useEffect(()=>{
+    const q=query(collection(db,"bybit_positions"),orderBy("opened_at","desc"),limit(100));
+    return onSnapshot(q,snap=>{
+      const all=snap.docs.map(d=>({id:d.id,...d.data()}));
+      setBybitOpenPos(all.filter(p=>p.status==="OPEN"));
+      setBybitClosedPos(all.filter(p=>p.status==="CLOSED").sort((a,b)=>
+        new Date(b.closed_at||0)-new Date(a.closed_at||0)
+      ));
+    });
+  },[]);
+
+  useEffect(()=>{
+    const q=query(collection(db,"bybit_log"),orderBy("timestamp","desc"),limit(200));
+    return onSnapshot(q,snap=>setBybitLog(snap.docs.map(d=>({id:d.id,...d.data()}))));
+  },[]);
+
   useEffect(()=>{
     return onSnapshot(doc(db,"market_regime","current"), snap=>{
       if(snap.exists()) setMarketRegime(snap.data());
@@ -3094,6 +3318,7 @@ export default function App(){
 
         {tab==="sentiment"&&<SentimentHarmonia signals={signals} openPos={openPos} closedPos={closedPos}/>}
         {tab==="shadow"&&<ShadowPortfolioDashboard portfolios={shadowPortfolios} positions={shadowPositions} realPortfolio={portfolio}/>}
+        {tab==="bybit"&&<BybitDashboard portfolio={bybitPortfolio} openPos={bybitOpenPos} closedPos={bybitClosedPos} logEvents={bybitLog} channelNames={channelNames}/>}
       </div>
     </div>
   );
