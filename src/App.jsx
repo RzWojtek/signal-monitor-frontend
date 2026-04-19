@@ -259,7 +259,7 @@ const PositionRow = ({ pos, channelNames, onRename, onClose }) => {
           ?<span style={{color:tpsHit>0?GREEN:"#7878a0"}}>{tpsHit}/{tpsTotal}</span>
           :<span style={{color:"#7878a0"}}>—</span>}
       </td>
-      <td style={{padding:"10px 10px",color:"#a8a8c8"}}>
+      <td className="col-hide" style={{padding:"10px 10px",color:"#a8a8c8"}}>
         {fmtK(pos.allocated_usd)}
         {pos.leverage>1&&<span style={{color:YELLOW,marginLeft:4}}>x{pos.leverage}</span>}
       </td>
@@ -267,10 +267,10 @@ const PositionRow = ({ pos, channelNames, onRename, onClose }) => {
         <span style={{color:isPos?GREEN:RED,fontWeight:700}}>{isPos?"+":""}{fmtK(pnl)}</span>
         <span style={{color:isPos?GREEN+"88":RED+"88",marginLeft:6,fontSize:11}}>({isPos?"+":""}{pct(pnlPct)})</span>
       </td>
-      <td style={{padding:"10px 10px"}}>
+      <td className="col-hide" style={{padding:"10px 10px"}}>
         <ChannelTag channelId={pos.channel} channelNames={channelNames} onRename={onRename}/>
       </td>
-      <td style={{padding:"10px 10px",color:"#9898b8",fontSize:11}}>{ago(pos.opened_at)}</td>
+      <td className="col-hide" style={{padding:"10px 10px",color:"#9898b8",fontSize:11}}>{ago(pos.opened_at)}</td>
       <td style={{padding:"10px 10px"}}>
         <button onClick={()=>{
           if(window.confirm(`Zamknąć ${pos.symbol} @ $${pos.current_price}?`))
@@ -371,9 +371,12 @@ function PositionsTable({positions,channelNames,onRename,onClose}){
       <table style={{width:"100%",borderCollapse:"collapse",fontFamily:"monospace",fontSize:12}}>
         <thead>
           <tr style={{borderBottom:`1px solid ${BORDER}`}}>
-            {["Symbol","Typ","Entry","Aktualnie","SL","TP","Alloc.","Unrealized P&L","Kanał","Otwarto",""].map(h=>(
-              <th key={h} style={{color:"#9898b8",fontSize:10,letterSpacing:1,padding:"8px 10px",
-                textAlign:"left",textTransform:"uppercase",whiteSpace:"nowrap"}}>{h}</th>
+            {[
+              {l:"Symbol"},{l:"Typ"},{l:"Entry"},{l:"Aktualnie"},{l:"SL"},{l:"TP"},
+              {l:"Alloc.",hide:true},{l:"Unrealized P&L"},{l:"Kanał",hide:true},{l:"Otwarto",hide:true},{l:""}
+            ].map(h=>(
+              <th key={h.l} className={h.hide?"col-hide":""} style={{color:"#9898b8",fontSize:10,letterSpacing:1,padding:"8px 10px",
+                textAlign:"left",textTransform:"uppercase",whiteSpace:"nowrap"}}>{h.l}</th>
             ))}
           </tr>
         </thead>
@@ -513,7 +516,14 @@ function ClosedPositionDetail({pos}) {
 }
 
 function ClosedTable({positions,channelNames,onRename}){
+  // useRef przeżywa re-rendery z Firebase - expanded nie resetuje się przy onSnapshot
   const [expanded, setExpanded] = useState(null);
+  const expandedRef = React.useRef(null);
+  const toggleExpanded = (id) => {
+    const next = expandedRef.current === id ? null : id;
+    expandedRef.current = next;
+    setExpanded(next);
+  };
   if(!positions.length) return <div style={{color:"#7878a0",textAlign:"center",padding:20,fontSize:13}}>Brak zamkniętych</div>;
   return(
     <div style={{overflowX:"auto"}}>
@@ -530,7 +540,7 @@ function ClosedTable({positions,channelNames,onRename}){
           {positions.map(pos=>{
             const pnl=pos.realized_pnl??0,pnlPct=pos.realized_pnl_pct??0;
             const isPos=pnl>=0,isLong=["LONG","SPOT_BUY"].includes(pos.signal_type);
-            const isOpen = expanded === pos.id;
+            const isOpen = expandedRef.current === pos.id;
             const tpsHit = pos.tps_hit?.length ?? 0;
             const tpsTotal = pos.take_profits?.length ?? 0;
             return(
@@ -538,7 +548,7 @@ function ClosedTable({positions,channelNames,onRename}){
                 <tr style={{borderBottom:isOpen?"none":`1px solid ${BORDER}22`,
                   cursor:"pointer",transition:"background .15s",
                   background:isOpen?"rgba(0,229,255,.04)":"transparent"}}
-                  onClick={()=>setExpanded(isOpen?null:pos.id)}>
+                  onClick={()=>toggleExpanded(pos.id)}>
                   <td style={{padding:"8px 10px",color:"#5c6494",fontSize:12}}>
                     {isOpen?"▲":"▼"}
                   </td>
@@ -2843,9 +2853,56 @@ function AdvancedLog({events, channelNames, channelStats}) {
 }
 
 
+// ─── Bybit Closed Row — rozwijalna pozycja zamknięta ──────────────────────────
+function BybitClosedRow({pos, channelNames, expanded, onToggle}) {
+  const pnl    = pos.realized_pnl ?? 0;
+  const isP    = pnl >= 0;
+  const isLong = ["LONG","SPOT_BUY"].includes(pos.signal_type);
+  const tpsHit = pos.tps_hit?.length ?? 0;
+  const tpsTot = pos.take_profits?.length ?? 0;
+  const GREEN="#00e676", RED="#ff5252", CYAN="#00e5ff", PURPLE="#ce93d8";
+  const YELLOW="#ffd740", CARD="#1c2030", BORDER="#2e3350";
+
+  return (
+    <div style={{background:CARD,borderRadius:10,marginBottom:8,
+      border:`1px solid ${isP?"rgba(0,230,118,.2)":"rgba(255,82,82,.2)"}`}}>
+      {/* Nagłówek */}
+      <div onClick={onToggle}
+        style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",
+          cursor:"pointer",flexWrap:"wrap"}}>
+        <span style={{color:CYAN,fontWeight:800,fontSize:13,minWidth:100}}>{pos.symbol}</span>
+        <span style={{background:isLong?GREEN:RED,color:"#0d0f17",
+          fontSize:10,fontWeight:800,padding:"2px 7px",borderRadius:4}}>
+          {pos.signal_type}
+        </span>
+        <span style={{color:"#9898b8",fontSize:11}}>x{pos.leverage}</span>
+        <span style={{color:"#9898b8",fontSize:11,fontFamily:"monospace"}}>
+          ${pos.entry_price} → ${pos.close_price||"—"}
+        </span>
+        <span style={{color:isP?GREEN:RED,fontWeight:700,fontSize:13}}>
+          {isP?"+":""}{pnl.toFixed(4)}$
+        </span>
+        <span style={{color:YELLOW,fontSize:11}}>{pos.close_reason||"—"}</span>
+        <span style={{color:"#9898b8",fontSize:11}}>TP {tpsHit}/{tpsTot}</span>
+        <span style={{color:PURPLE,fontSize:11,marginLeft:"auto"}}>
+          {channelNames?.[pos.channel]||pos.channel}
+        </span>
+        <span style={{color:"#5c6494",fontSize:11}}>
+          {pos.closed_at?new Date(pos.closed_at).toLocaleTimeString("pl"):"-"}
+        </span>
+        <span style={{color:"#5c6494",fontSize:12}}>{expanded?"▲":"▼"}</span>
+      </div>
+      {/* Rozwijalne szczegóły — ten sam komponent co Portfolio */}
+      {expanded&&<ClosedPositionDetail pos={pos}/>}
+    </div>
+  );
+}
+
 // ─── Bybit Dashboard ───────────────────────────────────────────────────────────
 function BybitDashboard({portfolio, openPos, closedPos, logEvents, channelNames}){
   const [logTab, setLogTab] = useState("positions");
+  const [expandedIds, setExpandedIds] = React.useState({});
+  const toggleExpand = (id) => setExpandedIds(prev=>({...prev,[id]:!prev[id]}));
   const p = portfolio || {};
   const available = p.available_usd ?? 0;
   const walletBal = p.wallet_balance ?? 0;
@@ -2969,44 +3026,16 @@ function BybitDashboard({portfolio, openPos, closedPos, logEvents, channelNames}
         </div>
       )}
 
-      {/* Historia zamkniętych */}
+      {/* Historia zamkniętych — z rozwijalnymi szczegółami jak w Portfolio */}
       {logTab==="closed"&&(
         <div>
           {closedPos.length===0&&(
             <div style={{color:"#5c6494",textAlign:"center",padding:40}}>Brak zamkniętych pozycji</div>
           )}
-          <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,fontFamily:"monospace"}}>
-            <thead>
-              <tr style={{color:"#5c6494",borderBottom:`1px solid ${BORDER}`}}>
-                {["Symbol","Typ","Entry","Exit","PnL","Powód","Kanał","Zamknięto"].map(h=>(
-                  <th key={h} style={{padding:"6px 8px",textAlign:"left",fontWeight:600}}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {closedPos.map(pos=>{
-                const pnl=pos.realized_pnl??0;
-                const isP=pnl>=0;
-                const isLong=["LONG","SPOT_BUY"].includes(pos.signal_type);
-                return(
-                  <tr key={pos.id} style={{borderBottom:`1px solid ${BORDER}22`}}>
-                    <td style={{padding:"7px 8px",color:CYAN,fontWeight:700}}>{pos.symbol}</td>
-                    <td style={{padding:"7px 8px",color:isLong?GREEN:RED}}>{pos.signal_type}</td>
-                    <td style={{padding:"7px 8px",color:"#e8eaf6"}}>${pos.entry_price}</td>
-                    <td style={{padding:"7px 8px",color:"#e8eaf6"}}>${pos.close_price||"—"}</td>
-                    <td style={{padding:"7px 8px",color:isP?GREEN:RED,fontWeight:700}}>
-                      {isP?"+":""}{pnl.toFixed(4)}$
-                    </td>
-                    <td style={{padding:"7px 8px",color:YELLOW}}>{pos.close_reason||"—"}</td>
-                    <td style={{padding:"7px 8px",color:PURPLE}}>{channelNames[pos.channel]||pos.channel}</td>
-                    <td style={{padding:"7px 8px",color:"#5c6494"}}>
-                      {pos.closed_at?new Date(pos.closed_at).toLocaleTimeString("pl"):"—"}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          {closedPos.map(pos=>(
+            <BybitClosedRow key={pos.id} pos={pos} channelNames={channelNames}
+              expanded={!!expandedIds[pos.id]} onToggle={()=>toggleExpand(pos.id)}/>
+          ))}
         </div>
       )}
 
@@ -3262,6 +3291,12 @@ export default function App(){
         ::-webkit-scrollbar-thumb{background:#5c5c7a;border-radius:3px;}
         input:focus{outline:none;}
         button:hover{opacity:0.85;}
+        @media(max-width:600px){
+          .col-hide{display:none!important;}
+          .tab-label{font-size:9px!important;padding:6px 6px!important;}
+          table{font-size:10px!important;}
+          td,th{padding:5px 4px!important;}
+        }
       `}</style>
 
       {/* Navbar */}
