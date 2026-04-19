@@ -676,6 +676,122 @@ cd /home/signal-bot && python3 reset_all.py
 - Crypto Future Signals (3697222236) dodany do TELEGRAM_CHANNELS w .env
 
 
+## 21. Sesja 19-20.04.2026
+
+### Bybit trader — naprawy krytyczne:
+
+**bybit_trader.py:**
+- **TP exchange-side** — `set_tp_orders_on_bybit()` wystawia wszystkie TP jako zlecenia
+  limit reduce-only na Bybit przy otwarciu pozycji
+- **Anulowanie TP** — `cancel_tp_orders_on_bybit()` anuluje stare zlecenia przed
+  wystawieniem nowych (po każdym partial close)
+- **Re-order TP** — po TP1 bot anuluje TP2-5 i wystawia nowe z zaktualizowaną qty
+- **SL exchange-side** — `set_sl_on_bybit()` z walidacją ceny (nie ustawia SL gdy
+  jest po złej stronie aktualnej ceny rynkowej)
+- **Trailing SL na Bybit** — po TP1→50%, po TP2→BE, po TP3→TP1 price — każda zmiana
+  wysyłana do Bybit przez `/v5/position/trading-stop`
+- **Sync loop podwójna weryfikacja** — pozycja musi być nieobecna 2× z rzędu zanim
+  Firebase ją zamknie (chroni przed chwilowymi lagami API)
+- **close_position** nie wysyła zlecenia gdy `CLOSED_ON_EXCHANGE`
+- **Mała pozycja** — gdy qty < min_qty przy partial close, pomija zlecenie (nie crashuje)
+
+### Nowe narzędzia testowe:
+
+**test_signal.py** — otwiera testową pozycję ETH/USDT z aktualnymi cenami:
+- Pobiera aktualną cenę z Bybit API
+- Lewar x15 (wystarczająca qty na partial close)
+- 5 TP: +2%/+4%/+6%/+8%/+10%, SL: -3%
+- Otwiera równolegle w symulacji i Bybit
+```bash
+cd /home/signal-bot && python3 test_signal.py
+```
+
+**sim_tp.py** — interaktywny symulator TP:
+- Pokazuje aktualny stan pozycji (entry, qty, SL, TP trafione/oczekujące)
+- Wyjaśnia co się stanie po każdym TP (ile % zamknie, jak zmieni się SL)
+- Pyta czy wykonać TP1/TP2/TP3/TP4/TP5
+- Wykonuje w obu systemach (Bybit + symulacja)
+```bash
+cd /home/signal-bot && python3 sim_tp.py
+```
+
+**Czyszczenie pozycji testowych:**
+```bash
+python3 -c "
+from dotenv import load_dotenv; load_dotenv()
+import firebase_admin
+from firebase_admin import credentials, firestore
+from datetime import datetime, timezone
+cred = credentials.Certificate('firebase-key.json')
+firebase_admin.initialize_app(cred)
+db = firestore.client()
+for col in ['bybit_positions', 'simulation_positions']:
+    docs = db.collection(col).where('status','==','OPEN').stream()
+    for d in docs:
+        if d.to_dict().get('channel') == 'test':
+            d.reference.update({'status':'CLOSED','close_reason':'TEST_CLEANUP',
+                'closed_at':datetime.now(timezone.utc).isoformat()})
+            print(f'Zamknięto: {d.id}')
+print('OK')
+"
+```
+
+### Wyniki testów symulacji:
+- TP1 ✅ zamknął 35%, SL przesunął się do 50%, ustawiony na Bybit
+- TP2 ✅ zamknął 25%, SL→BE, ustawiony na Bybit
+- TP3 ✅ zamknął 20%, SL→TP1 price
+- TP4/TP5 — przy małym kapitale ($8×x15) qty po TP3 < min_qty (0.01 ETH)
+  Na prawdziwych sygnałach nie będzie problemu
+
+### Groq auto-fallback:
+
+**base_channel.py:**
+- Throttling 2s między requestami (class variable — współdzielony)
+- Retry 3× z backoff 15s/30s
+- **Auto-fallback**: gdy błąd `tokens per day` → przełącza na `llama-3.1-8b-instant`
+- **Auto-powrót**: po północy UTC co 10 minut testuje primary, wraca gdy dostępny
+- Status zapisywany do `bot_health/groq_model` (jeden dokument, nadpisywany)
+- Zielony/żółty banner w zakładce Debug
+
+**crypto_beast.py:**
+- Hard-spam filter: t.me/+, join fast, paid group, admin birthday itp.
+- Usuwanie `**` markdown przed pre_filter
+
+**crypto_future_signals.py:**
+- Hard-spam filter identyczny jak BEAST
+
+### Nowy kanał:
+
+**Crypto Future Signals (ID: 3697222236):**
+- Handler: `/home/signal-bot/channels/crypto_future_signals.py`
+- Dodać do .env: `TELEGRAM_CHANNELS=...,3697222236`
+- Reload: `pm2 reload signal-bot --update-env`
+- Formaty: zapowiedź krótka, pełny sygnał z Leverage 40X,
+  aktualizacje (Set sl/tp, Close on entry, Manually Cancelled)
+
+### App.jsx — poprawki UI:
+
+**Zakładka Bybit → Historia:**
+- Rozwijane wiersze zamkniętych pozycji jak w Portfolio/Zamknięte
+- Ten sam `ClosedPositionDetail` — TP lista, SL, podsumowanie słowne, szczegóły
+- Kliknięcie w wiersz rozwija/zwija szczegóły
+
+**Naprawy mobilne:**
+- CSS `@media(max-width:600px)` z klasą `.col-hide`
+- Na telefonach ukryte kolumny: Kanał, Otwarto, Alloc.
+- Zostają: Symbol, Typ, Entry, Aktualnie, SL, TP, P&L, Zamknij
+- Rozwinięte pozycje **nie zamykają się** przy odświeżaniu Firebase:
+  - `ClosedTable` używa `expandedRef` (przeżywa re-rendery)
+  - `BybitClosedRow` — `expanded` state w rodzicu `BybitDashboard` jako Map
+
+### Instrukcja VPS od zera:
+- Plik: `INSTALACJA_VPS.md` w repozytorium GitHub
+- Kroki: apt, Node.js, PM2, Python libs, git clone, firebase-key, .env,
+  pierwsze logowanie Telegram (ręcznie!), pm2 start, pm2 save, pm2 startup
+
+  
+
+
 ## PROMPT STARTOWY
 
 Wklej to jako pierwszą wiadomość w nowym czacie:
