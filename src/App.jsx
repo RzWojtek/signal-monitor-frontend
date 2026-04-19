@@ -19,26 +19,7 @@ const db  = getFirestore(app);
 const round2 = (n) => Math.round(n * 10000) / 10000;
 
 // ─── Close position from frontend ─────────────────────────────────────────────
-const BYBIT_API = "http://185.202.239.239:8765";
 
-async function closeBybitPositionManually(positionId, currentPrice) {
-  try {
-    // Wywołaj API na VPS — zamknie pozycję na Bybit i zaktualizuje Firebase
-    const resp = await fetch(`${BYBIT_API}/api/bybit/close`, {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({position_id: positionId, close_price: currentPrice}),
-    });
-    const data = await resp.json();
-    if (!data.ok) {
-      alert(`Błąd zamknięcia: ${data.error}`);
-      console.error("Bybit close error:", data.error);
-    }
-  } catch(e) {
-    console.error("Bybit close fetch error:", e);
-    alert("Nie można połączyć z botem. Sprawdź czy VPS działa.");
-  }
-}
 
 async function closePositionManually(positionId, currentPrice) {
   try {
@@ -2863,7 +2844,7 @@ function AdvancedLog({events, channelNames, channelStats}) {
 
 
 // ─── Bybit Dashboard ───────────────────────────────────────────────────────────
-function BybitDashboard({portfolio, openPos, closedPos, logEvents, channelNames, onClose}){
+function BybitDashboard({portfolio, openPos, closedPos, logEvents, channelNames}){
   const [logTab, setLogTab] = useState("positions");
   const p = portfolio || {};
   const available = p.available_usd ?? 0;
@@ -2963,14 +2944,7 @@ function BybitDashboard({portfolio, openPos, closedPos, logEvents, channelNames,
                   <div><span style={{color:"#5c6494"}}>Kanał: </span><span style={{color:PURPLE}}>{channelNames[pos.channel]||pos.channel}</span></div>
                   <div><span style={{color:"#5c6494"}}>Otwarto: </span><span style={{color:"#9898b8"}}>{pos.opened_at?new Date(pos.opened_at).toLocaleTimeString("pl"):"-"}</span></div>
                 </div>
-                <div style={{marginTop:10,display:"flex",justifyContent:"flex-end"}}>
-                  <button onClick={()=>onClose&&onClose(pos.id, pos.current_price||pos.entry_price)}
-                    style={{background:"rgba(255,82,82,.15)",border:"1px solid rgba(255,82,82,.4)",
-                      color:"#ff5252",padding:"5px 14px",borderRadius:6,cursor:"pointer",
-                      fontSize:11,fontWeight:700,fontFamily:"monospace"}}>
-                    ✕ Zamknij
-                  </button>
-                </div>
+
                 {/* TP lista */}
                 {(pos.take_profits||[]).length>0&&(
                   <div style={{marginTop:10,display:"flex",gap:6,flexWrap:"wrap"}}>
@@ -3347,7 +3321,7 @@ export default function App(){
 
         {tab==="sentiment"&&<SentimentHarmonia signals={signals} openPos={openPos} closedPos={closedPos}/>}
         {tab==="shadow"&&<ShadowPortfolioDashboard portfolios={shadowPortfolios} positions={shadowPositions} realPortfolio={portfolio}/>}
-        {tab==="bybit"&&<BybitDashboard portfolio={bybitPortfolio} openPos={bybitOpenPos} closedPos={bybitClosedPos} logEvents={bybitLog} channelNames={channelNames} onClose={closeBybitPositionManually}/>}
+        {tab==="bybit"&&<BybitDashboard portfolio={bybitPortfolio} openPos={bybitOpenPos} closedPos={bybitClosedPos} logEvents={bybitLog} channelNames={channelNames}/>}
       </div>
     </div>
   );
