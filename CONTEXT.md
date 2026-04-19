@@ -542,13 +542,145 @@ for d in docs:
 - Tokeny z prefiksem 1000 (konwencja Binance/Bybit) MEXC notuje bez prefixu
 
 
+## 20. Sesja 18-19.04.2026
+
+### Nowe pliki na VPS:
+
+**bybit_trader.py** — silnik tradingu Bybit Demo Trading:
+- REST API Bybit v5 z podpisem HMAC
+- UNIFIED account type (Demo Trading)
+- BASE_URL: api-demo.bybit.com
+- 4% z dostępnego kapitału, slippage 0.5%, cross margin
+- Front-loaded TP identyczny jak simulation.py
+- **SL exchange-side** — `set_sl_on_bybit()` przez `/v5/position/trading-stop`
+- **TP exchange-side** — `set_tp_orders_on_bybit()` — wszystkie TP jako zlecenia limit reduce-only
+- Po każdym TP: anuluje stare zlecenia TP, wystawia nowe dla pozostałej qty
+- **Trailing SL na Bybit** — po TP1→50%, po TP2→BE, po TP3→TP1 price (aktualizowane exchange-side)
+- `close_position()` nie wysyła zlecenia gdy `CLOSED_ON_EXCHANGE`
+- **Sync loop z podwójną weryfikacją** — pozycja musi być nieobecna 2× z rzędu zanim Firebase ją zamknie
+- Firebase: kolekcje `bybit_positions`, `bybit_portfolio`, `bybit_log`
+
+**bybit_ws.py** — WebSocket ceny co ~1s:
+- URL: wss://stream.bybit.com/v5/public/linear (mainnet publiczny, działa z Demo)
+- Subskrypcja tickerów dla otwartych pozycji
+- Exponential backoff przy rozłączeniu (5s→10s→...→60s)
+- Dynamiczne dodawanie nowych symboli przy otwarciu pozycji
+- Sprawdza TP/SL co 1 sekundę przez `check_tp_sl()`
+
+**reset_all.py** — reset wszystkiego do zera:
+- Czyści: signals, signals_summary, non_signals, simulation_positions,
+  simulation_log, channel_stats, shadow_positions, shadow_portfolios,
+  bybit_positions, bybit_log
+- Resetuje portfolio symulacji ($200) i bybit_portfolio
+
+**fix_position.py** — ręczna aktualizacja pozycji symulacji (bez zmian)
+
+**crypto_future_signals.py** — nowy handler kanału:
+- ID: 3697222236
+- Formaty: zapowiedź krótka (Long #ORDI 9.330 / Tp / Sl),
+  pełny sygnał (#VIC LONG 0.081 / Leverage 40X / Tp1-3 / Sl),
+  aktualizacje (Set sl X, Set tp 1 now X, Close on entry, Manually Cancelled)
+- Deployment: dodać do TELEGRAM_CHANNELS w .env + `pm2 reload --update-env`
+
+### Zmiany w istniejących plikach:
+
+**bot.py**:
+- `load_dotenv()` przeniesiony przed importy (fix BYBIT_TESTNET=false nie działało)
+- Import i integracja bybit_trader + bybit_ws
+- `init_bybit(db)` przy starcie
+- `process_signal_for_bybit()` wywoływane równolegle z simulation
+- `bybit_ws_loop()` jako osobny task
+- HTTP server na porcie 8765 (aiohttp) — endpoint `/api/bybit/close` i `/api/health`
+- `_bybit_sync_loop()` co 5s sprawdza czy pozycje nadal otwarte na Bybit
+- Polling limit: 20 wiadomości (było 10), okno 15 minut (było 10)
+
+**channels/base_channel.py**:
+- Throttling 2s między requestami Groq (class variable `_last_groq_call`)
+- Retry z exponential backoff (3 próby, 15s/30s)
+- **Auto-fallback modelu**: primary `llama-3.3-70b-versatile` (100k/dzień),
+  fallback `llama-3.1-8b-instant` (1M/dzień)
+- Przy błędzie `tokens per day` → automatyczne przełączenie na fallback
+- Po północy UTC → test primary co 10 minut → powrót gdy dostępny
+- Status zapisywany do `bot_health/groq_model` w Firebase (jeden dokument)
+
+**channels/crypto_beast.py**:
+- `pre_filter`: usuwa `**` markdown przed sprawdzaniem
+- Wzmocniony hard_spam filter (t.me/+, join fast, paid group, admin birthday itp.)
+
+**channels/crypto_world.py**:
+- TYP 7 w prompcie: kilka pełnych sygnałów dla tego samego symbolu → osobne LONG/SHORT
+
+**channels/crypto_devil.py**:
+- FORMAT 2: uproszczony (AVAX/USD SELL / Entry : $ X / Target1: $ X / SL : $ X)
+
+**channels/crypto_monk.py**:
+- preprocess_text usuwa emoji ze wszystkich linii
+- Przykład 4 (NEAR/USDT SHORT 30x)
+
+**channels/crypto_future_signals.py**:
+- hard_spam filter (paid group, hurry up, join fast itp.)
+
+**simulation.py**:
+- `should_update` — 4. warunek: nowy pełny sygnał z innymi parametrami aktualizuje pozycję
+- `SYM_MAP` rozszerzony: 1000SATS, 1000PEPE, 1000FLOKI, 1000BONK, 1000X, 1000CAT, 1000MOG
+
+**price_updater.py**:
+- `SYMBOL_MAP` zsynchronizowany z simulation.py (tokeny 1000-prefix)
+- Auto-discovery prefix 1000 w runtime
+
+### App.jsx — zakładka Bybit (🟡):
+- Pozycja zaraz po Portfolio w tab barze
+- Metryki: Wallet Balance, Dostępny Margin, Margin w użyciu, Całkowity P&L,
+  Zrealizowany, Niezrealizowany, Win Rate, Trades, Otwarte poz.
+- Error banner gdy Bybit odrzuci zlecenie
+- Sub-zakładki: Pozycje / Historia / Log
+- Status modelu Groq w zakładce Debug (zielony=primary, żółty=fallback)
+
+### Komendy VPS:
+
+```bash
+# Sprawdź aktualny model Groq
+grep "fallback\|primary\|GROQ\|wyczerpany" /home/signal-bot/logs/bot-out.log | tail -10
+
+# Sprawdź status modelu w Firebase
+python3 -c "
+from dotenv import load_dotenv; load_dotenv()
+import firebase_admin
+from firebase_admin import credentials, firestore
+cred = credentials.Certificate('firebase-key.json')
+firebase_admin.initialize_app(cred)
+db = firestore.client()
+doc = db.collection('bot_health').document('groq_model').get()
+if doc.exists:
+    d = doc.to_dict()
+    print(f'Model: {d.get(\"current_model\")}')
+    print(f'Fallback: {d.get(\"using_fallback\")}')
+    print(f'Od: {d.get(\"fallback_since\")}')
+else:
+    print('Primary model aktywny (brak przełączeń)')
+"
+
+# Test Bybit API
+cd /home/signal-bot && python3 test_bybit.py
+
+# Reset wszystkiego
+cd /home/signal-bot && python3 reset_all.py
+```
+
+### Uwagi:
+- Bybit Demo Trading: api-demo.bybit.com, BYBIT_TESTNET=false w .env
+- WebSocket ceny: wss://stream.bybit.com/v5/public/linear (publiczny mainnet)
+- SYM_MAP w simulation.py i price_updater.py muszą być zsynchronizowane
+- Groq primary reset o północy UTC — bot automatycznie wraca do primary
+- Port 8765 otwarty na firewall (ufw allow 8765) — HTTP API dla zamykania pozycji
+- Crypto Future Signals (3697222236) dodany do TELEGRAM_CHANNELS w .env
+
+
 ## PROMPT STARTOWY
 
 Wklej to jako pierwszą wiadomość w nowym czacie:
 
----
 
-```
 Kontynuujemy pracę nad projektem "Telegram Signal Bot" — systemem monitorowania sygnałów tradingowych.
 
 STACK:
