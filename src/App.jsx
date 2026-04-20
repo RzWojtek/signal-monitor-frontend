@@ -232,436 +232,120 @@ function PortfolioHeader({portfolio}){
 }
 
 // ─── Position Row — memoized to prevent collapse on re-render ─────────────────
-const PositionRow = ({ pos, channelNames, onRename, onClose }) => {
-  const pnl=pos.unrealized_pnl??0,pnlPct=pos.unrealized_pnl_pct??0;
-  const isPos=pnl>=0,isLong=["LONG","SPOT_BUY"].includes(pos.signal_type);
-  const accent=isLong?GREEN:RED;
-  const tpsHit=pos.tps_hit?.length??0,tpsTotal=pos.take_profits?.length??0;
-  const slMoved=pos.sl_moved_to_be;
+// ─── Position Card (mobile-friendly, no table) ───────────────────────────────
+function PositionCard({pos, channelNames, onRename, onClose}) {
+  const pnl    = pos.unrealized_pnl ?? 0;
+  const pnlPct = pos.unrealized_pnl_pct ?? 0;
+  const isPos  = pnl >= 0;
+  const isLong = ["LONG","SPOT_BUY"].includes(pos.signal_type);
+  const accent = isLong ? GREEN : RED;
+  const tpsHit = pos.tps_hit?.length ?? 0;
+  const tpsTotal = pos.take_profits?.length ?? 0;
+  const slMoved = pos.sl_moved_to_be;
 
-  return(<>
-    {/* Główny wiersz */}
-    <tr style={{borderBottom:`1px solid ${BORDER}22`}}
-      onMouseEnter={e=>e.currentTarget.style.background="#ffffff05"}
-      onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-      <td style={{padding:"10px 10px",color:"#fff",fontWeight:700}}>
-        <span style={{borderLeft:`3px solid ${accent}`,paddingLeft:8}}>{pos.symbol}</span>
-      </td>
-      <td style={{padding:"10px 10px"}}><Pill label={pos.signal_type} color={accent}/></td>
-      <td style={{padding:"10px 10px",color:"#b8b8d0"}}>${fmt(pos.entry_price,4)}</td>
-      <td style={{padding:"10px 10px",color:isPos?GREEN:RED,fontWeight:600}}>${fmt(pos.current_price,4)}</td>
-      <td style={{padding:"10px 10px"}}>
-        <span style={{color:RED+"cc"}}>{pos.stop_loss?`$${fmt(pos.stop_loss,4)}`:"—"}</span>
-        {slMoved&&<span style={{color:YELLOW,fontSize:10,marginLeft:4}}>BE</span>}
-      </td>
-      <td style={{padding:"10px 10px"}}>
-        {tpsTotal>0
-          ?<span style={{color:tpsHit>0?GREEN:"#7878a0"}}>{tpsHit}/{tpsTotal}</span>
-          :<span style={{color:"#7878a0"}}>—</span>}
-      </td>
-      <td className="col-hide" style={{padding:"10px 10px",color:"#a8a8c8"}}>
-        {fmtK(pos.allocated_usd)}
-        {pos.leverage>1&&<span style={{color:YELLOW,marginLeft:4}}>x{pos.leverage}</span>}
-      </td>
-      <td style={{padding:"10px 10px"}}>
-        <span style={{color:isPos?GREEN:RED,fontWeight:700}}>{isPos?"+":""}{fmtK(pnl)}</span>
-        <span style={{color:isPos?GREEN+"88":RED+"88",marginLeft:6,fontSize:11}}>({isPos?"+":""}{pct(pnlPct)})</span>
-      </td>
-      <td className="col-hide" style={{padding:"10px 10px"}}>
-        <ChannelTag channelId={pos.channel} channelNames={channelNames} onRename={onRename}/>
-      </td>
-      <td className="col-hide" style={{padding:"10px 10px",color:"#9898b8",fontSize:11}}>{ago(pos.opened_at)}</td>
-      <td style={{padding:"10px 10px"}}>
+  return (
+    <div style={{background:CARD, borderRadius:10, marginBottom:10,
+      border:`1px solid ${accent}33`, borderLeft:`3px solid ${accent}`}}>
+
+      {/* Górny pasek — symbol + PnL */}
+      <div style={{display:"flex", alignItems:"center", justifyContent:"space-between",
+        padding:"10px 14px", flexWrap:"wrap", gap:8}}>
+        <div style={{display:"flex", alignItems:"center", gap:8}}>
+          <span style={{color:"#fff", fontWeight:800, fontSize:14, fontFamily:"monospace"}}>{pos.symbol}</span>
+          <Pill label={pos.signal_type} color={accent}/>
+          <span style={{color:YELLOW, fontSize:11}}>x{pos.leverage}</span>
+        </div>
+        <div style={{display:"flex", alignItems:"center", gap:8}}>
+          <span style={{color:isPos?GREEN:RED, fontWeight:800, fontSize:14, fontFamily:"monospace"}}>
+            {isPos?"+":""}{fmtK(pnl)}
+          </span>
+          <span style={{color:isPos?GREEN+"99":RED+"99", fontSize:11}}>
+            ({isPos?"+":""}{pct(pnlPct)})
+          </span>
+        </div>
+      </div>
+
+      {/* Środkowy pasek — ceny */}
+      <div style={{display:"grid", gridTemplateColumns:"repeat(3,1fr)",
+        padding:"8px 14px", gap:8, borderTop:`1px solid ${BORDER}44`,
+        borderBottom:`1px solid ${BORDER}44`}}>
+        <div>
+          <div style={{color:"#5c6494", fontSize:9, marginBottom:2}}>ENTRY</div>
+          <div style={{color:"#b8b8d0", fontFamily:"monospace", fontSize:12}}>${fmt(pos.entry_price,4)}</div>
+        </div>
+        <div>
+          <div style={{color:"#5c6494", fontSize:9, marginBottom:2}}>AKTUALNIE</div>
+          <div style={{color:isPos?GREEN:RED, fontFamily:"monospace", fontSize:12, fontWeight:700}}>
+            ${fmt(pos.current_price,4)}
+          </div>
+        </div>
+        <div>
+          <div style={{color:"#5c6494", fontSize:9, marginBottom:2}}>STOP LOSS</div>
+          <div style={{color:RED+"cc", fontFamily:"monospace", fontSize:12}}>
+            {pos.stop_loss ? `$${fmt(pos.stop_loss,4)}` : "—"}
+            {slMoved && <span style={{color:YELLOW, fontSize:9, marginLeft:4}}>BE</span>}
+          </div>
+        </div>
+      </div>
+
+      {/* TP + akcje */}
+      <div style={{padding:"8px 14px", display:"flex", alignItems:"center",
+        justifyContent:"space-between", gap:8, flexWrap:"wrap"}}>
+        {/* TP lista */}
+        <div style={{display:"flex", gap:4, flexWrap:"wrap", flex:1}}>
+          {pos.take_profits?.map(tp => {
+            const hit = pos.tps_hit?.includes(tp.level);
+            return (
+              <span key={tp.level} style={{
+                fontSize:10, fontFamily:"monospace", padding:"2px 7px", borderRadius:4,
+                background: hit?"rgba(0,230,118,.15)":"rgba(255,255,255,.05)",
+                color: hit?GREEN:"#5c6494",
+                border:`1px solid ${hit?GREEN+"44":BORDER}`,
+              }}>
+                {hit?"✓ ":""}TP{tp.level} ${fmt(tp.price,4)}
+              </span>
+            );
+          }) || <span style={{color:"#5c6494",fontSize:11}}>Brak TP</span>}
+        </div>
+
+        {/* Zamknij */}
         <button onClick={()=>{
           if(window.confirm(`Zamknąć ${pos.symbol} @ $${pos.current_price}?`))
             onClose(pos.id, pos.current_price||pos.entry_price);
-        }} style={{background:RED+"22",color:RED,border:`1px solid ${RED}44`,
-          borderRadius:4,padding:"3px 10px",cursor:"pointer",fontSize:10,
-          fontFamily:"monospace",whiteSpace:"nowrap"}}>✕ Zamknij</button>
-      </td>
-    </tr>
-    {/* Panel szczegółów — zawsze widoczny */}
-    <tr>
-      <td colSpan={11} style={{padding:"0 10px 10px 10px",background:"#2e2e46"}}>
-        <div style={{
-          padding:"10px 14px",borderRadius:6,
-          border:`1px solid ${accent}22`,
-          display:"flex",gap:28,flexWrap:"wrap",
-        }}>
-          {/* TAKE PROFITS */}
-          <div>
-            <div style={{color:"#9898b8",fontSize:10,letterSpacing:1,marginBottom:6}}>
-              TAKE PROFITS
-              {tpsTotal>0&&<span style={{color:tpsHit>0?GREEN:"#7878a0",marginLeft:6}}>({tpsHit}/{tpsTotal})</span>}
-            </div>
-            {pos.take_profits?.length?(
-              <div style={{display:"flex",flexDirection:"column",gap:3}}>
-                {pos.take_profits.map(tp=>{
-                  const hit=pos.tps_hit?.includes(tp.level);
-                  return(
-                    <div key={tp.level} style={{
-                      color:hit?GREEN:"#7878a0",
-                      fontSize:12,fontFamily:"monospace",
-                    }}>
-                      {hit?"✓":"○"} TP{tp.level}: ${fmt(tp.price,4)}
-                      {tp.close_pct&&tp.close_pct!==50&&(
-                        <span style={{color:hit?GREEN+"88":"#5a5a7a",fontSize:10,marginLeft:6}}>
-                          ({tp.close_pct}%)
-                        </span>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            ):<span style={{color:"#7878a0",fontSize:12}}>Brak TP</span>}
-          </div>
+        }} style={{background:RED+"22", color:RED, border:`1px solid ${RED}44`,
+          borderRadius:4, padding:"4px 12px", cursor:"pointer", fontSize:11,
+          fontFamily:"monospace", whiteSpace:"nowrap", flexShrink:0}}>✕ Zamknij</button>
+      </div>
 
-          {/* STOP LOSS */}
-          <div>
-            <div style={{color:"#9898b8",fontSize:10,letterSpacing:1,marginBottom:6}}>STOP LOSS</div>
-            <div style={{color:RED+"cc",fontFamily:"monospace",fontSize:13,fontWeight:600}}>
-              {pos.stop_loss?`$${fmt(pos.stop_loss,4)}`:"—"}
-              {slMoved&&<span style={{color:YELLOW,fontSize:11,marginLeft:8}}>● BE</span>}
-            </div>
-            {pos.original_stop_loss&&slMoved&&(
-              <div style={{color:"#7878a0",fontSize:10,marginTop:2}}>
-                Orig: ${fmt(pos.original_stop_loss,4)}
-              </div>
-            )}
-          </div>
-
-          {/* PARTIAL CLOSES */}
-          {pos.partial_closes?.length>0&&(
-            <div>
-              <div style={{color:"#9898b8",fontSize:10,letterSpacing:1,marginBottom:6}}>CZĘŚCIOWE ZAMKNIĘCIA</div>
-              {pos.partial_closes.map((pc,i)=>(
-                <div key={i} style={{color:GREEN,fontSize:11,fontFamily:"monospace"}}>
-                  TP{pc.tp_level}: +${fmt(pc.pnl,2)} @ ${fmt(pc.price,4)}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* SZCZEGÓŁY */}
-          <div>
-            <div style={{color:"#9898b8",fontSize:10,letterSpacing:1,marginBottom:6}}>SZCZEGÓŁY</div>
-            <div style={{color:"#a0a0c0",fontSize:11,fontFamily:"monospace"}}>Qty: {fmt(pos.quantity_remaining||pos.quantity,6)}</div>
-            <div style={{color:"#a0a0c0",fontSize:11,fontFamily:"monospace"}}>Ryzyko: {pos.risk_pct}%</div>
-            <div style={{color:"#a0a0c0",fontSize:11,fontFamily:"monospace"}}>Typ: {pos.entry_type}</div>
-          </div>
-
-          {/* OTWARTO */}
-          <div>
-            <div style={{color:"#9898b8",fontSize:10,letterSpacing:1,marginBottom:6}}>OTWARTO</div>
-            <div style={{color:"#a0a0c0",fontSize:11,fontFamily:"monospace"}}>{fmtDt(pos.opened_at)}</div>
-          </div>
+      {/* Partial closes */}
+      {pos.partial_closes?.length > 0 && (
+        <div style={{padding:"4px 14px 10px", display:"flex", gap:8, flexWrap:"wrap"}}>
+          {pos.partial_closes.map((pc,i) => (
+            <span key={i} style={{color:GREEN, fontSize:10, fontFamily:"monospace",
+              background:"rgba(0,230,118,.08)", padding:"2px 8px", borderRadius:4}}>
+              TP{pc.tp_level}: +${fmt(pc.pnl,4)} @ ${fmt(pc.price,4)}
+            </span>
+          ))}
         </div>
-      </td>
-    </tr>
-  </>);
-};
+      )}
+    </div>
+  );
+}
 
-// ─── Positions Table ───────────────────────────────────────────────────────────
 function PositionsTable({positions,channelNames,onRename,onClose}){
-  const scrollRef = React.useRef(null);
-  const scrollPos = React.useRef(0);
-
-  // Zapamiętaj pozycję scrolla przed re-renderem
-  React.useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const save = () => { scrollPos.current = el.scrollLeft; };
-    el.addEventListener('scroll', save);
-    return () => el.removeEventListener('scroll', save);
-  }, []);
-
-  // Przywróć pozycję scrolla po re-renderze
-  React.useLayoutEffect(() => {
-    if (scrollRef.current && scrollPos.current > 0) {
-      scrollRef.current.scrollLeft = scrollPos.current;
-    }
-  });
-
   if(!positions.length) return(
     <div style={{color:"#7878a0",padding:30,textAlign:"center",fontSize:13}}>Brak pozycji</div>
   );
   return(
-    <div ref={scrollRef} style={{overflowX:"auto"}}>
-      <table style={{width:"100%",borderCollapse:"collapse",fontFamily:"monospace",fontSize:12}}>
-        <thead>
-          <tr style={{borderBottom:`1px solid ${BORDER}`}}>
-            {[
-              {l:"Symbol"},{l:"Typ"},{l:"Entry"},{l:"Aktualnie"},{l:"SL"},{l:"TP"},
-              {l:"Alloc.",hide:true},{l:"Unrealized P&L"},{l:"Kanał",hide:true},{l:"Otwarto",hide:true},{l:""}
-            ].map(h=>(
-              <th key={h.l} className={h.hide?"col-hide":""} style={{color:"#9898b8",fontSize:10,letterSpacing:1,padding:"8px 10px",
-                textAlign:"left",textTransform:"uppercase",whiteSpace:"nowrap"}}>{h.l}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {positions.map(pos=>(
-            <PositionRow key={pos.id} pos={pos} channelNames={channelNames}
-              onRename={onRename} onClose={onClose}/>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-// ─── Closed Positions ──────────────────────────────────────────────────────────
-function ClosedPositionDetail({pos}) {
-  const tps        = pos.take_profits || [];
-  const tpsHit     = pos.tps_hit || [];
-  const partials   = pos.partial_closes || [];
-  const isLong     = ["LONG","SPOT_BUY"].includes(pos.signal_type);
-  const reason     = pos.close_reason || "";
-  const slHit      = reason === "SL_HIT";
-  const lastTpHit  = tpsHit.length > 0 ? Math.max(...tpsHit) : 0;
-  const totalTps   = tps.length;
-  const pnl        = pos.realized_pnl ?? 0;
-
-  // Podsumowanie słowne
-  let summary = "";
-  if (slHit && tpsHit.length === 0) {
-    summary = "❌ Pozycja nieudana — SL trafiony bez żadnego TP";
-  } else if (slHit && tpsHit.length > 0) {
-    summary = `⚠️ Częściowy sukces — TP${lastTpHit} osiągnięty, potem SL trafiony`;
-  } else if (reason.includes("TP")) {
-    if (lastTpHit === totalTps) {
-      summary = `✅ Pełny sukces — wszystkie ${totalTps} TP osiągnięte`;
-    } else {
-      summary = `✅ Zamknięto na TP${lastTpHit} z ${totalTps}`;
-    }
-  } else if (reason === "MANUAL_CLOSE") {
-    summary = "🔧 Zamknięto ręcznie";
-  } else {
-    summary = `Zamknięto: ${reason}`;
-  }
-
-  return (
-    <div style={{padding:"12px 16px",background:"#0d0f17",borderTop:"1px solid #2e3350"}}>
-      {/* Podsumowanie */}
-      <div style={{color:"#e8eaf6",fontSize:12,marginBottom:12,fontFamily:"monospace",
-        padding:"8px 12px",background:"rgba(255,255,255,.04)",borderRadius:6}}>
-        {summary}
-        {pnl !== 0 && <span style={{marginLeft:12,color:pnl>=0?"#00e676":"#ff5252",fontWeight:700}}>
-          {pnl>=0?"+":""}{pnl.toFixed(2)}$ łącznie
-        </span>}
-      </div>
-
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-        {/* TP Historia */}
-        <div>
-          <div style={{color:"#9898b8",fontSize:10,letterSpacing:"0.1em",
-            textTransform:"uppercase",marginBottom:8,fontWeight:600}}>
-            Cele zysku ({tpsHit.length}/{totalTps} trafione)
-          </div>
-          {tps.map(tp => {
-            const hit = tpsHit.includes(tp.level);
-            const partial = partials.find(p => p.tp_level === tp.level);
-            const isLast = tp.level === lastTpHit && slHit;
-            return (
-              <div key={tp.level} style={{
-                display:"flex",alignItems:"center",gap:8,
-                padding:"5px 8px",marginBottom:4,borderRadius:5,
-                background: hit ? "rgba(0,230,118,.08)" : "rgba(255,255,255,.02)",
-                border: `1px solid ${hit?"rgba(0,230,118,.2)":"rgba(46,51,80,.4)"}`,
-              }}>
-                <span style={{fontSize:14,flexShrink:0}}>
-                  {hit ? (isLast ? "⚠️" : "✅") : "○"}
-                </span>
-                <span style={{color:"#9898b8",fontSize:11,fontFamily:"monospace",flexShrink:0}}>
-                  TP{tp.level}
-                </span>
-                <span style={{color:hit?"#00e676":"#5c6494",fontFamily:"monospace",fontSize:11}}>
-                  ${fmt(tp.price, 4)}
-                </span>
-                <span style={{color:"#5c6494",fontSize:10}}>{tp.close_pct||0}%</span>
-                {partial && (
-                  <span style={{marginLeft:"auto",color:"#00e676",fontFamily:"monospace",
-                    fontSize:11,fontWeight:700}}>
-                    +{partial.pnl?.toFixed(2)}$
-                  </span>
-                )}
-              </div>
-            );
-          })}
-        </div>
-
-        {/* SL + szczegóły */}
-        <div>
-          <div style={{color:"#9898b8",fontSize:10,letterSpacing:"0.1em",
-            textTransform:"uppercase",marginBottom:8,fontWeight:600}}>
-            Stop Loss
-          </div>
-          <div style={{
-            display:"flex",alignItems:"center",gap:8,
-            padding:"5px 8px",marginBottom:12,borderRadius:5,
-            background: slHit?"rgba(255,82,82,.1)":"rgba(255,255,255,.02)",
-            border:`1px solid ${slHit?"rgba(255,82,82,.3)":"rgba(46,51,80,.4)"}`,
-          }}>
-            <span style={{fontSize:14}}>{slHit?"🛑":"○"}</span>
-            <span style={{color:slHit?"#ff5252":"#5c6494",fontFamily:"monospace",fontSize:11}}>
-              ${fmt(pos.stop_loss||pos.original_stop_loss, 4)}
-            </span>
-            {slHit && <span style={{color:"#ff5252",fontSize:10,marginLeft:"auto"}}>TRAFIONY</span>}
-          </div>
-
-          <div style={{color:"#9898b8",fontSize:10,letterSpacing:"0.1em",
-            textTransform:"uppercase",marginBottom:8,fontWeight:600}}>
-            Szczegóły pozycji
-          </div>
-          {[
-            {l:"Entry",    v:`$${fmt(pos.entry_price,5)}`},
-            {l:"Exit",     v:`$${fmt(pos.close_price,5)}`},
-            {l:"Dźwignia", v:`x${pos.leverage}`},
-            {l:"Ryzyko",   v:`$${fmt(pos.allocated_usd,2)}`},
-            {l:"Slippage", v:`${pos.slippage_pct||0}%`},
-            {l:"Otwarto",  v:pos.opened_at?new Date(pos.opened_at).toLocaleTimeString("pl-PL",{hour:"2-digit",minute:"2-digit"}):"—"},
-            {l:"Zamknięto",v:pos.closed_at?new Date(pos.closed_at).toLocaleTimeString("pl-PL",{hour:"2-digit",minute:"2-digit"}):"—"},
-          ].map(s=>(
-            <div key={s.l} style={{display:"flex",justifyContent:"space-between",
-              padding:"3px 0",borderBottom:"1px solid rgba(46,51,80,.3)"}}>
-              <span style={{color:"#5c6494",fontSize:11}}>{s.l}</span>
-              <span style={{color:"#b8b8d0",fontFamily:"monospace",fontSize:11}}>{s.v}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ClosedTable({positions,channelNames,onRename}){
-  // expandedRef przeżywa re-rendery z Firebase
-  const expandedRef = React.useRef(null);
-  const [, forceUpdate] = React.useReducer(x => x + 1, 0);
-  const toggleExpanded = (id) => {
-    expandedRef.current = expandedRef.current === id ? null : id;
-    forceUpdate(); // tylko odśwież widok, nie resetuj stanu
-  };
-  if(!positions.length) return <div style={{color:"#7878a0",textAlign:"center",padding:20,fontSize:13}}>Brak zamkniętych</div>;
-  return(
-    <div style={{overflowX:"auto"}} ref={(el)=>{
-      if(el && el._scrollSaved) el.scrollLeft = el._scrollSaved;
-      if(el) el.onscroll = ()=>{ el._scrollSaved = el.scrollLeft; };
-    }}>
-      <table style={{width:"100%",borderCollapse:"collapse",fontFamily:"monospace",fontSize:12}}>
-        <thead>
-          <tr style={{borderBottom:`1px solid ${BORDER}`}}>
-            {["","Symbol","Typ","Entry","Exit","P&L $","P&L %","Powód","Kanał","Czas"].map(h=>(
-              <th key={h} style={{color:"#9898b8",fontSize:10,letterSpacing:1,padding:"8px 10px",
-                textAlign:"left",textTransform:"uppercase"}}>{h}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {positions.map(pos=>{
-            const pnl=pos.realized_pnl??0,pnlPct=pos.realized_pnl_pct??0;
-            const isPos=pnl>=0,isLong=["LONG","SPOT_BUY"].includes(pos.signal_type);
-            const isOpen = expandedRef.current === pos.id;
-            const tpsHit = pos.tps_hit?.length ?? 0;
-            const tpsTotal = pos.take_profits?.length ?? 0;
-            return(
-              <React.Fragment key={pos.id}>
-                <tr style={{borderBottom:isOpen?"none":`1px solid ${BORDER}22`,
-                  cursor:"pointer",transition:"background .15s",
-                  background:isOpen?"rgba(0,229,255,.04)":"transparent"}}
-                  onClick={()=>toggleExpanded(pos.id)}>
-                  <td style={{padding:"8px 10px",color:"#5c6494",fontSize:12}}>
-                    {isOpen?"▲":"▼"}
-                  </td>
-                  <td style={{padding:"8px 10px",color:"#e8e8f0",fontWeight:600}}>{pos.symbol}</td>
-                  <td style={{padding:"8px 10px"}}><Pill label={pos.signal_type} color={isLong?GREEN:RED}/></td>
-                  <td style={{padding:"8px 10px",color:"#a0a0c0"}}>${fmt(pos.entry_price,4)}</td>
-                  <td style={{padding:"8px 10px",color:"#a0a0c0"}}>${fmt(pos.close_price,4)}</td>
-                  <td style={{padding:"8px 10px",fontWeight:700,color:isPos?GREEN:RED}}>{isPos?"+":""}{fmtK(pnl)}</td>
-                  <td style={{padding:"8px 10px",color:isPos?GREEN+"99":RED+"99"}}>{isPos?"+":""}{pct(pnlPct)}</td>
-                  <td style={{padding:"8px 10px"}}>
-                    <div style={{display:"flex",alignItems:"center",gap:6}}>
-                      <Pill label={pos.close_reason||"?"} color={pos.close_reason?.includes("TP")?GREEN:pos.close_reason==="SL_HIT"?RED:"#888"}/>
-                      {tpsTotal>0&&<span style={{color:"#5c6494",fontSize:10}}>{tpsHit}/{tpsTotal}TP</span>}
-                    </div>
-                  </td>
-                  <td style={{padding:"8px 10px"}} onClick={e=>e.stopPropagation()}>
-                    <ChannelTag channelId={pos.channel} channelNames={channelNames} onRename={onRename}/>
-                  </td>
-                  <td style={{padding:"8px 10px",color:"#9898b8",fontSize:11}}>{ago(pos.closed_at)}</td>
-                </tr>
-                {isOpen && (
-                  <tr style={{borderBottom:`1px solid ${BORDER}22`}}>
-                    <td colSpan={10} style={{padding:0}}>
-                      <ClosedPositionDetail pos={pos}/>
-                    </td>
-                  </tr>
-                )}
-              </React.Fragment>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-// ─── Channel Stats ─────────────────────────────────────────────────────────────
-function ChannelStats({channelStats,channelNames,onRename}){
-  if(!channelStats.length) return(
-    <div style={{color:"#7878a0",padding:40,textAlign:"center",fontSize:13}}>
-      Brak danych — pojawią się po zamknięciu pierwszych pozycji
-    </div>
-  );
-  return(
     <div>
-      <div style={{color:"#9898b8",fontSize:11,letterSpacing:2,marginBottom:16}}>RANKING KANAŁÓW</div>
-      {[...channelStats].sort((a,b)=>(b.total_pnl||0)-(a.total_pnl||0)).map(ch=>{
-        const isPos=(ch.total_pnl||0)>=0,wr=ch.win_rate||0;
-        const wrColor=wr>=60?GREEN:wr>=40?YELLOW:RED;
-        const chId=ch.channel||"?";
-        return(
-          <div key={ch.id||chId} style={{
-            background:CARD,border:`1px solid ${isPos?GREEN+"25":RED+"25"}`,
-            borderLeft:`3px solid ${isPos?GREEN:RED}`,
-            borderRadius:8,padding:"16px 20px",marginBottom:10}}>
-            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12,flexWrap:"wrap"}}>
-              <ChannelTag channelId={chId} channelNames={channelNames} onRename={onRename}/>
-              <span style={{color:"#9898b8",fontSize:11}}>({chId})</span>
-              <span style={{marginLeft:"auto",color:isPos?GREEN:RED,fontFamily:"monospace",fontWeight:700,fontSize:16}}>
-                {isPos?"+":""}{fmtK(ch.total_pnl)}
-              </span>
-            </div>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(100px,1fr))",gap:10}}>
-              {[
-                {l:"Win Rate",v:`${wr}%`,c:wrColor},
-                {l:"Trades",v:ch.total_trades||0,c:BLUE},
-                {l:"Wins",v:ch.wins||0,c:GREEN},
-                {l:"Losses",v:ch.losses||0,c:RED},
-                {l:"SL trafione",v:ch.sl_hits||0,c:RED},
-                {l:"TP trafione",v:ch.tp_hits||0,c:GREEN},
-                {l:"Avg P&L",v:fmtK(ch.avg_pnl),c:isPos?GREEN:RED},
-                {l:"Najlepszy",v:fmtK(ch.best_trade),c:GREEN},
-                {l:"Najgorszy",v:fmtK(ch.worst_trade),c:RED},
-              ].map(s=>(
-                <div key={s.l}>
-                  <div style={{color:"#9898b8",fontSize:9,letterSpacing:1,textTransform:"uppercase"}}>{s.l}</div>
-                  <div style={{color:s.c,fontFamily:"monospace",fontSize:13,fontWeight:600}}>{s.v}</div>
-                </div>
-              ))}
-            </div>
-            <div style={{marginTop:10,padding:"6px 12px",borderRadius:6,
-              background:wr>=55&&isPos?GREEN+"15":wr<40||!isPos?RED+"15":YELLOW+"15",
-              border:`1px solid ${wr>=55&&isPos?GREEN+"30":wr<40||!isPos?RED+"30":YELLOW+"30"}`,
-              fontSize:11,color:wr>=55&&isPos?GREEN:wr<40||!isPos?RED:YELLOW}}>
-              {wr>=55&&isPos?"✅ Warto kopiować":wr<40||!isPos?"❌ Słabe wyniki — rozważ usunięcie":"⚠ Neutralne — obserwuj dalej"}
-            </div>
-          </div>
-        );
-      })}
+      {positions.map(pos=>(
+        <PositionCard key={pos.id} pos={pos} channelNames={channelNames}
+          onRename={onRename} onClose={onClose}/>
+      ))}
     </div>
   );
 }
+
 
 // ─── Signal Card ───────────────────────────────────────────────────────────────
 function SignalCard({signal,channelNames,onRename}){
@@ -3381,4 +3065,58 @@ export default function App(){
       </div>
     </div>
   );
+}function ClosedTable({positions,channelNames,onRename}){
+  const expandedRef = React.useRef(null);
+  const [, forceUpdate] = React.useReducer(x=>x+1, 0);
+  const toggle = (id) => {
+    expandedRef.current = expandedRef.current === id ? null : id;
+    forceUpdate();
+  };
+  if(!positions.length) return(
+    <div style={{color:"#7878a0",textAlign:"center",padding:20,fontSize:13}}>Brak zamkniętych</div>
+  );
+  return(
+    <div>
+      {positions.map(pos=>{
+        const pnl=pos.realized_pnl??0, pnlPct=pos.realized_pnl_pct??0;
+        const isPos=pnl>=0, isLong=["LONG","SPOT_BUY"].includes(pos.signal_type);
+        const accent=isLong?GREEN:RED;
+        const isOpen=expandedRef.current===pos.id;
+        const tpsHit=pos.tps_hit?.length??0, tpsTotal=pos.take_profits?.length??0;
+        return(
+          <div key={pos.id} style={{background:CARD, borderRadius:10, marginBottom:8,
+            border:`1px solid ${isPos?"rgba(0,230,118,.2)":"rgba(255,82,82,.2)"}`,
+            borderLeft:`3px solid ${isPos?GREEN:RED}`}}>
+
+            {/* Nagłówek — klikalny */}
+            <div onClick={()=>toggle(pos.id)} style={{cursor:"pointer",
+              padding:"10px 14px", display:"flex", alignItems:"center",
+              gap:8, flexWrap:"wrap"}}>
+              <span style={{color:"#fff",fontWeight:800,fontSize:13,fontFamily:"monospace",
+                minWidth:90}}>{pos.symbol}</span>
+              <Pill label={pos.signal_type} color={accent}/>
+              <span style={{color:"#9898b8",fontSize:11}}>x{pos.leverage}</span>
+              <span style={{color:"#9898b8",fontSize:11,fontFamily:"monospace"}}>
+                ${fmt(pos.entry_price,4)}→${fmt(pos.close_price,4)}
+              </span>
+              <span style={{color:isPos?GREEN:RED,fontWeight:800,fontSize:13,
+                fontFamily:"monospace",marginLeft:"auto"}}>
+                {isPos?"+":""}{fmtK(pnl)}
+              </span>
+              <span style={{color:isPos?GREEN+"99":RED+"99",fontSize:11}}>
+                ({isPos?"+":""}{pct(pnlPct)})
+              </span>
+              <span style={{color:YELLOW,fontSize:11}}>TP {tpsHit}/{tpsTotal}</span>
+              <span style={{color:"#5c6494",fontSize:12}}>{isOpen?"▲":"▼"}</span>
+            </div>
+
+            {/* Szczegóły — rozwijane */}
+            {isOpen&&<ClosedPositionDetail pos={pos}/>}
+          </div>
+        );
+      })}
+    </div>
+  );
 }
+
+
