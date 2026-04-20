@@ -2560,44 +2560,89 @@ function AdvancedLog({events, channelNames, channelStats}) {
 
 // ─── Bybit Closed Row — rozwijalna pozycja zamknięta ──────────────────────────
 function BybitClosedRow({pos, channelNames, expanded, onToggle}) {
-  const pnl    = pos.realized_pnl ?? 0;
-  const isP    = pnl >= 0;
-  const isLong = ["LONG","SPOT_BUY"].includes(pos.signal_type);
-  const tpsHit = pos.tps_hit?.length ?? 0;
-  const tpsTot = pos.take_profits?.length ?? 0;
+  const pnl      = pos.realized_pnl ?? 0;
+  const isP      = pnl >= 0;
+  const isLong   = ["LONG","SPOT_BUY"].includes(pos.signal_type);
+  const tpsHit   = pos.tps_hit || [];
+  const tpsTot   = pos.take_profits?.length ?? 0;
+  const reason   = pos.close_reason || "";
+  const slHit    = reason === "SL_HIT";
+  const partials = pos.partial_closes || [];
   const GREEN="#00e676", RED="#ff5252", CYAN="#00e5ff", PURPLE="#ce93d8";
-  const YELLOW="#ffd740", CARD="#1c2030", BORDER="#2e3350";
+  const YELLOW="#ffd740", CARD="#1c2030", BORDER="#2e3350", ORANGE="#ff9800";
+
+  // Ikona wyniku
+  const resultIcon = slHit && tpsHit.length===0 ? "❌"
+    : slHit && tpsHit.length>0 ? "⚠️"
+    : tpsHit.length===tpsTot && tpsTot>0 ? "✅"
+    : tpsHit.length>0 ? "✅" : "○";
 
   return (
     <div style={{background:CARD,borderRadius:10,marginBottom:8,
-      border:`1px solid ${isP?"rgba(0,230,118,.2)":"rgba(255,82,82,.2)"}`}}>
-      {/* Nagłówek */}
+      border:`1px solid ${slHit?"rgba(255,82,82,.3)":isP?"rgba(0,230,118,.2)":"rgba(255,82,82,.2)"}`,
+      borderLeft:`3px solid ${slHit?RED:isP?GREEN:RED}`}}>
+
+      {/* Nagłówek — klikalny */}
       <div onClick={onToggle}
-        style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",
+        style={{display:"flex",alignItems:"center",gap:8,padding:"10px 14px",
           cursor:"pointer",flexWrap:"wrap"}}>
-        <span style={{color:CYAN,fontWeight:800,fontSize:13,minWidth:100}}>{pos.symbol}</span>
+
+        {/* Ikona wyniku */}
+        <span style={{fontSize:16,flexShrink:0}}>{resultIcon}</span>
+
+        <span style={{color:CYAN,fontWeight:800,fontSize:13,minWidth:90,fontFamily:"monospace"}}>
+          {pos.symbol}
+        </span>
         <span style={{background:isLong?GREEN:RED,color:"#0d0f17",
           fontSize:10,fontWeight:800,padding:"2px 7px",borderRadius:4}}>
           {pos.signal_type}
         </span>
         <span style={{color:"#9898b8",fontSize:11}}>x{pos.leverage}</span>
+
+        {/* Ceny */}
         <span style={{color:"#9898b8",fontSize:11,fontFamily:"monospace"}}>
-          ${pos.entry_price} → ${pos.close_price||"—"}
+          ${fmt(pos.entry_price,4)}→${fmt(pos.close_price,4)}
         </span>
-        <span style={{color:isP?GREEN:RED,fontWeight:700,fontSize:13}}>
+
+        {/* PnL */}
+        <span style={{color:isP?GREEN:RED,fontWeight:800,fontSize:13,fontFamily:"monospace"}}>
           {isP?"+":""}{pnl.toFixed(4)}$
         </span>
-        <span style={{color:YELLOW,fontSize:11}}>{pos.close_reason||"—"}</span>
-        <span style={{color:"#9898b8",fontSize:11}}>TP {tpsHit}/{tpsTot}</span>
-        <span style={{color:PURPLE,fontSize:11,marginLeft:"auto"}}>
-          {channelNames?.[pos.channel]||pos.channel}
+
+        {/* Powód zamknięcia — czytelny */}
+        <span style={{
+          background: slHit?"rgba(255,82,82,.15)":isP?"rgba(0,230,118,.15)":"rgba(255,152,0,.15)",
+          color: slHit?RED:isP?GREEN:ORANGE,
+          fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:4
+        }}>
+          {slHit ? "🛑 SL" : reason.includes("TP") ? `🎯 ${reason}` : reason}
         </span>
-        <span style={{color:"#5c6494",fontSize:11}}>
+
+        {/* TP trafione */}
+        <span style={{color:"#9898b8",fontSize:11}}>TP {tpsHit.length}/{tpsTot}</span>
+
+        <span style={{color:"#5c6494",fontSize:11,marginLeft:"auto"}}>
           {pos.closed_at?new Date(pos.closed_at).toLocaleTimeString("pl"):"-"}
         </span>
         <span style={{color:"#5c6494",fontSize:12}}>{expanded?"▲":"▼"}</span>
       </div>
-      {/* Rozwijalne szczegóły — ten sam komponent co Portfolio */}
+
+      {/* Partial closes — widoczne bez rozwijania */}
+      {partials.length>0&&(
+        <div style={{padding:"0 14px 8px",display:"flex",gap:6,flexWrap:"wrap"}}>
+          {partials.map((pc,i)=>(
+            <span key={i} style={{
+              fontSize:10,fontFamily:"monospace",padding:"2px 8px",borderRadius:4,
+              background:"rgba(0,230,118,.1)",color:GREEN,
+              border:"1px solid rgba(0,230,118,.2)"
+            }}>
+              TP{pc.tp_level}: +${fmt(pc.pnl,4)} @ ${fmt(pc.price,4)}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Rozwijalne szczegóły */}
       {expanded&&<ClosedPositionDetail pos={pos}/>}
     </div>
   );
