@@ -521,26 +521,40 @@ function AlertBanner({alerts}) {
   );
 }
 
-function TokenBar({used, limit, pct}) {
-  const color = pct>90?"#ff5c7a":pct>70?"#ffe066":"#00e5ff";
+function TokenBar({used, limit, pct, currentModel, usingFallback}) {
+  const safePct = Math.min(pct||0, 100);
+  const color = safePct>90?"#ff5c7a":safePct>70?"#ffe066":"#00e5ff";
+  const modelName = currentModel
+    ? currentModel.replace("llama-","").replace("-versatile","").replace("-instant","")
+    : "—";
   return (
     <div>
       <div style={{display:"flex",justifyContent:"space-between",marginBottom:5,fontSize:11,fontFamily:"monospace"}}>
         <span style={{color:"#9898b8"}}>Zużyto dziś</span>
         <span style={{color}}>
-          {used?.toLocaleString()||0} / {limit?.toLocaleString()||"100,000"} tokenów ({pct||0}%)
+          {(used||0).toLocaleString()} / {(limit||100000).toLocaleString()} tokenów ({pct||0}%)
         </span>
       </div>
       <div style={{background:"#2e2e46",borderRadius:4,height:8,overflow:"hidden"}}>
         <div style={{
-          width:`${Math.min(pct||0,100)}%`,height:"100%",
+          width:`${safePct}%`,height:"100%",
           background:`linear-gradient(90deg,${color}80,${color})`,
           borderRadius:4,transition:"width 1s ease",
         }}/>
       </div>
-      <div style={{color:"#7878a0",fontSize:10,marginTop:4}}>
-        Pozostało: <span style={{color}}>{(limit-used)?.toLocaleString()||"?"} tokenów</span>
-        {" · "}Reset: codziennie o północy UTC
+      <div style={{display:"flex",justifyContent:"space-between",marginTop:4}}>
+        <div style={{color:"#7878a0",fontSize:10}}>
+          Pozostało: <span style={{color}}>{Math.max((limit||100000)-(used||0),0).toLocaleString()} tokenów</span>
+          {" · "}Reset: codziennie o północy UTC
+        </div>
+        {currentModel && (
+          <div style={{fontSize:10,fontFamily:"monospace",
+            color: usingFallback?"#ffd740":"#00e676",
+            background: usingFallback?"rgba(255,215,64,.1)":"rgba(0,230,118,.1)",
+            padding:"1px 6px",borderRadius:4}}>
+            {usingFallback?"⚠ fallback":"✅ primary"}: {modelName}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -607,7 +621,9 @@ function BotHealthDashboard({health, channelNames, openPos}) {
           {/* Groq szczegóły */}
           <div style={{padding:"10px 12px",borderBottom:`1px solid #5c5c7a22`}}>
             <TokenBar used={health.groq_tokens_used} limit={health.groq_tokens_limit}
-              pct={health.groq_tokens_pct}/>
+              pct={health.groq_tokens_pct}
+              currentModel={health.groq_current_model}
+              usingFallback={health.groq_using_fallback}/>
             {health.groq_avg_response_ms>0&&(
               <div style={{color:"#9898b8",fontSize:11,marginTop:6}}>
                 Śr. czas odpowiedzi Groq:{" "}
