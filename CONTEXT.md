@@ -899,6 +899,129 @@ print('Reset OK')
 - Pozycje otwarte na Bybit ale zamknięte w Firebase wymagają ręcznego zamknięcia na giełdzie
   
 
+## 23. Sesja 20-21.04.2026 — Naprawa Bybit (część 2)
+
+### Krytyczne bugi naprawione:
+
+**1. round_price zwracało 0.0 dla tick_size w notacji naukowej**
+- `tick_size = 1e-05` → `str(1e-05) = '1e-05'` → split(".") dawał błędny wynik
+- Wszystkie TP dla par z małym tick_size (SUPER, THETA, GUN itp.) miały `Price invalid`
+- Fix: użycie `decimal.Decimal` dla precyzji
+- To był główny powód braku TP na Bybit dla wielu par!
+
+**2. set_sl_on_bybit — brak tpslMode**
+- Bybit wymaga `tpslMode: 'Full'` w `/v5/position/trading-stop`
+- Bez tego SL zwracał `not modified` mimo że pozycja go nie miała
+- Fix: dodano `"tpslMode": "Full"` do requestu
+
+**3. Sync loop zamykał pozycje za szybko po wykonaniu TP**
+- Po TP Bybit przez ~2-5s zwraca pusty wynik dla pozycji (API lag)
+- Sync loop widział brak pozycji → CLOSED_ON_EXCHANGE
+- Fix: minimalna nieobecność zwiększona do 60s
+
+**4. WebSocket zastąpiony REST polling**
+- WebSocket rozłączał się co ~12 minut (keepalive ping timeout)
+- Podczas rozłączenia: brak aktualizacji cen, TP nie wykrywane
+- Fix: `bybit_ws.py` przepisany na REST polling co 5s
+- `_poll_tick()` pobiera markPrice z Bybit i sprawdza TP/SL
+
+**5. Ceny Bybit aktualizowane przez REST co 10s**
+- Dodano `bybit_price_loop()` w `price_updater.py`
+- Używa markPrice (identyczny jak Bybit) zamiast lastPrice
+- Uruchamiana w `run_in_executor` żeby nie blokować asyncio
+
+**6. run_in_executor w bot.py**
+- `process_signal_for_bybit()` → executor (nie blokuje event loop)
+- `sync_positions_with_bybit()` → executor
+- Edycja sygnału → executor
+
+### Zmiany w plikach:
+
+**bybit_trader.py:**
+- `round_price()` — używa `decimal.Decimal` dla precyzji
+- `set_sl_on_bybit()` — dodano `tpslMode: 'Full'`
+- `sync_positions_with_bybit()` — min. 60s nieobecności przed zamknięciem
+
+**bybit_ws.py** — całkowicie przepisany:
+- Nie używa WebSocket
+- REST polling co 5s przez `_poll_tick()`
+- Pobiera markPrice z `/v5/market/tickers`
+- Sprawdza TP/SL synchronicznie z try/except
+- Zachowuje te same nazwy funkcji (kompatybilność z bot.py)
+
+**price_updater.py:**
+- Nowa funkcja `update_bybit_prices()` — REST Bybit co 10s
+- Nowa pętla `bybit_price_loop()` — w executor, nie blokuje
+- Używa markPrice dla zgodności z Bybit PnL
+
+**bot.py:**
+- Import `bybit_price_loop` z price_updater
+- `asyncio.ensure_future(bybit_price_loop())` przy starcie
+- Wywołania Bybit w executor (nie blokują asyncio)
+
+### Diagnostyka:
+
+```bash
+# Sprawdź czy REST polling działa
+grep "POLL.*Bybit REST\|Bybit price updater" /home/signal-bot/logs/bot-out.log | tail -3
+
+# Sprawdź aktywne zlecenia na Bybit
+python3 -c "
+from dotenv import load_dotenv; load_dotenv()
+from bybit_trader import _get, CATEGORY, get_all_open_positions
+import firebase_admin
+from firebase_admin import credentials, firestore
+cred = credentials.Certificate('firebase-key.json')
+firebase_admin.initialize_app(cred)
+db = firestore.client()
+from bybit_trader import init_bybit
+init_bybit(db)
+for pos in get_all_open_positions():
+    sym = pos['symbol'].replace('/','').upper()
+    resp = _get('/v5/order/realtime', {'category': CATEGORY, 'symbol': sym})
+    orders = resp.get('result', {}).get('list', [])
+    print(f'{pos[\"symbol\"]}: {len(orders)} zleceń aktywnych')
+"
+
+# Ręczne wystawienie TP i SL dla wszystkich otwartych pozycji
+python3 -c "
+from dotenv import load_dotenv; load_dotenv()
+import firebase_admin
+from firebase_admin import credentials, firestore
+cred = credentials.Certificate('firebase-key.json')
+firebase_admin.initialize_app(cred)
+db = firestore.client()
+from bybit_trader import init_bybit, get_all_open_positions, get_bybit_position, cancel_tp_orders_on_bybit, set_tp_orders_on_bybit, set_sl_on_bybit, _get, CATEGORY
+init_bybit(db)
+for pos in get_all_open_positions():
+    symbol = pos['symbol']
+    sym = symbol.replace('/','').upper()
+    is_long = pos['signal_type'] in ('LONG', 'SPOT_BUY')
+    bybit_pos = get_bybit_position(symbol)
+    if not bybit_pos: continue
+    qty = float(bybit_pos.get('size', 0))
+    sl = pos.get('stop_loss')
+    if sl: set_sl_on_bybit(symbol, sl, is_long)
+    resp = _get('/v5/order/realtime', {'category': CATEGORY, 'symbol': sym})
+    active = resp.get('result', {}).get('list', [])
+    tps = pos.get('take_profits', [])
+    tps_hit = pos.get('tps_hit', [])
+    remaining = [t for t in tps if t['level'] not in tps_hit]
+    if remaining and qty > 0 and len(active) == 0:
+        cancel_tp_orders_on_bybit(symbol, [])
+        orders = set_tp_orders_on_bybit(symbol, remaining, qty, is_long)
+        db.collection('bybit_positions').document(pos['id']).update({'tp_order_ids': orders})
+        print(f'{symbol}: {len(orders)} TP wystawiono')
+"
+```
+
+### Znane ograniczenia:
+- REST polling co 5s — może przeoczyć bardzo szybkie ruchy cen
+- Bybit API lag ~2-5s po wykonaniu zlecenia — obsługiwany przez 60s timeout sync
+- SUPER/USDT brak na MEXC — symulacja nie aktualizuje ceny (Bybit tak)
+- Demo Trading API bywa niestabilne (not modified, Price invalid)
+
+
 
 
 ## PROMPT STARTOWY
