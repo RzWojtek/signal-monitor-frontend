@@ -2815,6 +2815,12 @@ export default function App(){
   const [portfolio,setPortfolio]=useState(null);
   const [openPos,setOpenPos]=useState([]);
   const [closedPos,setClosedPos]=useState([]);
+  const closedExpandedRef = React.useRef(null);
+  const [closedExpandedTick, setClosedExpandedTick] = React.useReducer(x=>x+1,0);
+  const toggleClosedExpanded = (id) => {
+    closedExpandedRef.current = closedExpandedRef.current===id ? null : id;
+    setClosedExpandedTick();
+  };
   const [signals,setSignals]=useState([]);
   const [logEvents,setLogEvents]=useState([]);
   const [channelStats,setChannelStats]=useState([]);
@@ -3031,7 +3037,7 @@ export default function App(){
               onRename={handleRename} onClose={closePositionManually}/>
           </Card>}
           {closedPos.length>0&&<Card color={PURPLE} title="OSTATNIE ZAMKNIĘTE">
-            <ClosedTable positions={closedPos.slice(0,5)} channelNames={channelNames} onRename={handleRename}/>
+            <ClosedTable positions={closedPos.slice(0,5)} channelNames={channelNames} onRename={handleRename} expandedRef={closedExpandedRef} onToggle={toggleClosedExpanded}/>
           </Card>}
         </>)}
 
@@ -3041,7 +3047,7 @@ export default function App(){
         </Card>}
 
         {tab==="closed"&&<Card color={PURPLE} title="ZAMKNIĘTE POZYCJE" count={closedPos.length}>
-          <ClosedTable positions={closedPos} channelNames={channelNames} onRename={handleRename}/>
+          <ClosedTable positions={closedPos} channelNames={channelNames} onRename={handleRename} expandedRef={closedExpandedRef} onToggle={toggleClosedExpanded}/>
         </Card>}
 
         {tab==="channels"&&<Card color={ORANGE} title="STATYSTYKI KANAŁÓW">
@@ -3180,13 +3186,15 @@ function ClosedPositionDetail({pos}) {
   );
 }
 
-function ClosedTable({positions,channelNames,onRename}){
-  const expandedRef = React.useRef(null);
+function ClosedTable({positions,channelNames,onRename,expandedRef:extRef,onToggle:extToggle}){
+  // Użyj zewnętrznego ref z App jeśli dostępny (przeżywa Firebase re-rendery)
+  const internalRef = React.useRef(null);
   const [, forceUpdate] = React.useReducer(x=>x+1, 0);
-  const toggle = (id) => {
+  const expandedRef = extRef || internalRef;
+  const toggle = extToggle || ((id) => {
     expandedRef.current = expandedRef.current === id ? null : id;
     forceUpdate();
-  };
+  });
   if(!positions.length) return(
     <div style={{color:"#7878a0",textAlign:"center",padding:20,fontSize:13}}>Brak zamkniętych</div>
   );
