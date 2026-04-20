@@ -3065,7 +3065,122 @@ export default function App(){
       </div>
     </div>
   );
-}function ClosedTable({positions,channelNames,onRename}){
+}
+
+function ClosedPositionDetail({pos}) {
+  const tps        = pos.take_profits || [];
+  const tpsHit     = pos.tps_hit || [];
+  const partials   = pos.partial_closes || [];
+  const isLong     = ["LONG","SPOT_BUY"].includes(pos.signal_type);
+  const reason     = pos.close_reason || "";
+  const slHit      = reason === "SL_HIT";
+  const lastTpHit  = tpsHit.length > 0 ? Math.max(...tpsHit) : 0;
+  const totalTps   = tps.length;
+  const pnl        = pos.realized_pnl ?? 0;
+
+  let summary = "";
+  if (slHit && tpsHit.length === 0) {
+    summary = "❌ Pozycja nieudana — SL trafiony bez żadnego TP";
+  } else if (slHit && tpsHit.length > 0) {
+    summary = `⚠️ Częściowy sukces — TP${lastTpHit} osiągnięty, potem SL trafiony`;
+  } else if (reason.includes("TP")) {
+    summary = lastTpHit === totalTps
+      ? `✅ Pełny sukces — wszystkie ${totalTps} TP osiągnięte`
+      : `✅ Zamknięto na TP${lastTpHit} z ${totalTps}`;
+  } else if (reason === "MANUAL_CLOSE" || reason === "CLOSED_ON_EXCHANGE") {
+    summary = reason === "MANUAL_CLOSE" ? "🔧 Zamknięto ręcznie" : "🔄 Zamknięto na giełdzie";
+  } else {
+    summary = `Zamknięto: ${reason}`;
+  }
+
+  return (
+    <div style={{padding:"12px 16px",background:"#0d0f17",borderTop:"1px solid #2e3350"}}>
+      <div style={{color:"#e8eaf6",fontSize:12,marginBottom:12,fontFamily:"monospace",
+        padding:"8px 12px",background:"rgba(255,255,255,.04)",borderRadius:6}}>
+        {summary}
+        {pnl !== 0 && <span style={{marginLeft:12,color:pnl>=0?"#00e676":"#ff5252",fontWeight:700}}>
+          {pnl>=0?"+":""}{pnl.toFixed(2)}$ łącznie
+        </span>}
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+        <div>
+          <div style={{color:"#9898b8",fontSize:10,letterSpacing:"0.1em",
+            textTransform:"uppercase",marginBottom:8,fontWeight:600}}>
+            Cele zysku ({tpsHit.length}/{totalTps} trafione)
+          </div>
+          {tps.map(tp => {
+            const hit = tpsHit.includes(tp.level);
+            const partial = partials.find(p => p.tp_level === tp.level);
+            const isLast = tp.level === lastTpHit && slHit;
+            return (
+              <div key={tp.level} style={{
+                display:"flex",alignItems:"center",gap:8,
+                padding:"5px 8px",marginBottom:4,borderRadius:5,
+                background: hit ? "rgba(0,230,118,.08)" : "rgba(255,255,255,.02)",
+                border: `1px solid ${hit?"rgba(0,230,118,.2)":"rgba(46,51,80,.4)"}`,
+              }}>
+                <span style={{fontSize:14,flexShrink:0}}>
+                  {hit ? (isLast ? "⚠️" : "✅") : "○"}
+                </span>
+                <span style={{color:"#9898b8",fontSize:11,fontFamily:"monospace",flexShrink:0}}>
+                  TP{tp.level}
+                </span>
+                <span style={{color:hit?"#00e676":"#5c6494",fontFamily:"monospace",fontSize:11}}>
+                  ${fmt(tp.price, 4)}
+                </span>
+                <span style={{color:"#5c6494",fontSize:10}}>{tp.close_pct||0}%</span>
+                {partial && (
+                  <span style={{marginLeft:"auto",color:partial.pnl>=0?"#00e676":"#ff5252",
+                    fontFamily:"monospace",fontSize:11,fontWeight:700}}>
+                    {partial.pnl>=0?"+":""}{partial.pnl?.toFixed(4)}$
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        <div>
+          <div style={{color:"#9898b8",fontSize:10,letterSpacing:"0.1em",
+            textTransform:"uppercase",marginBottom:8,fontWeight:600}}>Stop Loss</div>
+          <div style={{
+            display:"flex",alignItems:"center",gap:8,
+            padding:"5px 8px",marginBottom:12,borderRadius:5,
+            background: slHit?"rgba(255,82,82,.1)":"rgba(255,255,255,.02)",
+            border:`1px solid ${slHit?"rgba(255,82,82,.3)":"rgba(46,51,80,.4)"}`,
+          }}>
+            <span style={{fontSize:14}}>{slHit?"🛑":"○"}</span>
+            <span style={{color:slHit?"#ff5252":"#5c6494",fontFamily:"monospace",fontSize:11}}>
+              ${fmt(pos.stop_loss||pos.original_stop_loss, 4)}
+            </span>
+            {slHit && <span style={{color:"#ff5252",fontSize:10,marginLeft:"auto"}}>TRAFIONY</span>}
+          </div>
+
+          <div style={{color:"#9898b8",fontSize:10,letterSpacing:"0.1em",
+            textTransform:"uppercase",marginBottom:8,fontWeight:600}}>Szczegóły pozycji</div>
+          {[
+            {l:"Entry",    v:`$${fmt(pos.entry_price,5)}`},
+            {l:"Exit",     v:`$${fmt(pos.close_price,5)}`},
+            {l:"Dźwignia", v:`x${pos.leverage}`},
+            {l:"Ryzyko",   v:`$${fmt(pos.allocated_usd,2)}`},
+            {l:"Slippage", v:`${pos.slippage_pct||0}%`},
+            {l:"Otwarto",  v:pos.opened_at?new Date(pos.opened_at).toLocaleTimeString("pl-PL",{hour:"2-digit",minute:"2-digit"}):"—"},
+            {l:"Zamknięto",v:pos.closed_at?new Date(pos.closed_at).toLocaleTimeString("pl-PL",{hour:"2-digit",minute:"2-digit"}):"—"},
+          ].map(s=>(
+            <div key={s.l} style={{display:"flex",justifyContent:"space-between",
+              padding:"3px 0",borderBottom:"1px solid rgba(46,51,80,.3)"}}>
+              <span style={{color:"#5c6494",fontSize:11}}>{s.l}</span>
+              <span style={{color:"#b8b8d0",fontFamily:"monospace",fontSize:11}}>{s.v}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ClosedTable({positions,channelNames,onRename}){
   const expandedRef = React.useRef(null);
   const [, forceUpdate] = React.useReducer(x=>x+1, 0);
   const toggle = (id) => {
