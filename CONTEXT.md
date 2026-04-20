@@ -789,7 +789,116 @@ print('OK')
 - Kroki: apt, Node.js, PM2, Python libs, git clone, firebase-key, .env,
   pierwsze logowanie Telegram (ręcznie!), pm2 start, pm2 save, pm2 startup
 
+
+## 22. Sesja 20.04.2026 — Naprawa systemu Bybit
+
+### Krytyczne bugi naprawione w bybit_trader.py:
+
+1. **Sync loop za szybki** — co 5s → co 30s (pierwsze sprawdzenie po 15s)
+   Powód: Bybit API lag > 5s powodował fałszywe CLOSED_ON_EXCHANGE
+
+2. **WebSocket duplikował zamknięcia TP** — usunięto market order przy TP
+   Teraz: TP wykonywane exchange-side przez Bybit, bot tylko rejestruje fakt
+
+3. **qty_to_close z Firebase ≠ Bybit** — pobieramy qty z get_bybit_position() przed obliczeniem
+   Powód: Bybit może zamknąć więcej niż Firebase wie
+
+4. **cancel_tp warunkowo** → zawsze cancel-all bez warunku if
+
+5. **Walidacja ceny blokowała trailing SL→TP1** — usunięto walidację ceny w set_sl_on_bybit
+
+6. **Edycja sygnału nie trafiała na Bybit** — dodano process_signal_for_bybit() przy edycji w bot.py
+
+7. **round() zamiast round_qty()** — poprawione dla qty_to_close
+
+8. **tp_order_ids nie zapisywane przy otwarciu** — dodane do dokumentu Firebase
+
+9. **bybit_qty None vs 0** — get_bybit_position() zwraca {} (truthy) gdy brak pozycji
+   Fix: sprawdzamy obecność klucza "size" bezpośrednio
+
+10. **bybit_qty==0 natychmiastowe zamknięcie** — gdy Bybit zamknął całą pozycję
+
+11. **close_position nie wysyła market order dla TP_HIT** — Bybit już zamknął exchange-side
+
+12. **Fallback TP wyłączony** — gdy bybit_qty is None (brak połączenia), czekamy na reconnect
+
+13. **cancel-all zamiast per-order** — anuluje wszystkie zlecenia dla symbolu naraz
+
+### bybit_ws.py:
+- `ping_interval=None, ping_timeout=None` — Bybit sam wysyła ping, nie biblioteka
+- PnL aktualizacja co 10s zamiast co 1s — mniej obciążenia Firebase
+- check_tp_sl i update_pnl bez run_in_executor (powodował wyścig wątków)
+
+### bot.py:
+- `process_signal_for_bybit()` → `run_in_executor` — nie blokuje asyncio event loop
+- `sync_positions_with_bybit()` → `run_in_executor`
+- Edycja sygnału (is_edit=True) → aktualizuje też Bybit
+- Sync loop co 30s (było 5s)
+
+### health_monitor.py:
+- Reset licznika tokenów co minutę przez `_check_midnight_token_reset()`
+- Limit tokenów dynamiczny: 100k (primary) lub 1M (fallback)
+- Heartbeat wysyła `groq_current_model` i `groq_using_fallback`
+- Helpers: `_get_groq_model()`, `_get_groq_fallback()`
+
+### App.jsx:
+- **TokenBar** — pokazuje aktualny model Groq (primary ✅ / fallback ⚠)
+- **PositionCard** — karty zamiast tabeli (mobile-friendly, bez poziomego scrolla)
+- **ClosedTable** — karty z `expandedRef` w App level (nie resetuje się przy Firebase update)
+- **BybitClosedRow** — ikony wyniku (✅/⚠/❌), partial closes widoczne bez rozwijania
+- Kanał pokazywany wszędzie (CHANNEL_FALLBACKS uzupełniony o wszystkie 12 kanałów)
+
+### Diagnostyka:
+```bash
+# Sprawdź kiedy ostatnio zaktualizowały się ceny Bybit
+python3 -c "
+from dotenv import load_dotenv; load_dotenv()
+import firebase_admin
+from firebase_admin import credentials, firestore
+from datetime import datetime, timezone
+cred = credentials.Certificate('firebase-key.json')
+firebase_admin.initialize_app(cred)
+db = firestore.client()
+from google.cloud.firestore_v1.base_query import FieldFilter
+docs = db.collection('bybit_positions').where(filter=FieldFilter('status','==','OPEN')).stream()
+now = datetime.now(timezone.utc)
+for d in docs:
+    data = d.to_dict()
+    upd = data.get('price_updated_at','')
+    if upd:
+        dt = datetime.fromisoformat(upd)
+        age = int((now-dt).total_seconds())
+        print(f'{data.get(\"symbol\")}: {age}s temu | cena={data.get(\"current_price\")}')
+"
+
+# Sprawdź WebSocket status
+grep "WS\].*Błąd\|WS\].*Łączę" /home/signal-bot/logs/bot-out.log | tail -10
+
+# Reset licznika tokenów Groq
+python3 -c "
+from dotenv import load_dotenv; load_dotenv()
+import firebase_admin
+from firebase_admin import credentials, firestore
+from datetime import datetime, timezone
+cred = credentials.Certificate('firebase-key.json')
+firebase_admin.initialize_app(cred)
+db = firestore.client()
+db.collection('bot_health').document('token_counter').set({
+    'date': datetime.now(timezone.utc).strftime('%Y-%m-%d'),
+    'tokens_used': 0,
+    'updated_at': datetime.now(timezone.utc).isoformat(),
+})
+print('Reset OK')
+"
+```
+
+### Znane problemy pozostałe:
+- WebSocket Bybit Demo rozłącza się co ~12 minut (keepalive ping timeout)
+  Po reconnekcie (~5s) ceny wracają normalnie
+- SUPER/USDT brak ceny na MEXC (price_updater pomija)
+- Pozycje otwarte na Bybit ale zamknięte w Firebase wymagają ręcznego zamknięcia na giełdzie
   
+
 
 
 ## PROMPT STARTOWY
