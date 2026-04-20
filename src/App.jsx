@@ -104,6 +104,10 @@ const CHANNEL_FALLBACKS = {
   "1756316676":   "Boom Boom",
   "1743387695":   "Crypto Hustle",
   "1652601224":   "Crypto World",
+  "1598691683":   "Crypto Devil",
+  "1505272164":   "Crypto Conquered",
+  "1594522150":   "Whales Pump",
+  "3697222236":   "Crypto Future Signals",
 };
 
 function lookupName(channelId, channelNames) {
@@ -250,10 +254,14 @@ function PositionCard({pos, channelNames, onRename, onClose}) {
       {/* Górny pasek — symbol + PnL */}
       <div style={{display:"flex", alignItems:"center", justifyContent:"space-between",
         padding:"10px 14px", flexWrap:"wrap", gap:8}}>
-        <div style={{display:"flex", alignItems:"center", gap:8}}>
+        <div style={{display:"flex", alignItems:"center", gap:8, flexWrap:"wrap"}}>
           <span style={{color:"#fff", fontWeight:800, fontSize:14, fontFamily:"monospace"}}>{pos.symbol}</span>
           <Pill label={pos.signal_type} color={accent}/>
           <span style={{color:YELLOW, fontSize:11}}>x{pos.leverage}</span>
+          <span style={{color:PURPLE, fontSize:10, background:"rgba(206,147,216,.1)",
+            padding:"1px 6px", borderRadius:4}}>
+            {lookupName(pos.channel, channelNames)}
+          </span>
         </div>
         <div style={{display:"flex", alignItems:"center", gap:8}}>
           <span style={{color:isPos?GREEN:RED, fontWeight:800, fontSize:14, fontFamily:"monospace"}}>
@@ -2748,7 +2756,7 @@ function BybitDashboard({portfolio, openPos, closedPos, logEvents, channelNames}
                   <div><span style={{color:"#5c6494"}}>Cena: </span><span style={{color:CYAN}}>${pos.current_price||"—"}</span></div>
                   <div><span style={{color:"#5c6494"}}>SL: </span><span style={{color:RED}}>${pos.stop_loss||"—"}</span></div>
                   <div><span style={{color:"#5c6494"}}>TP: </span><span style={{color:YELLOW}}>{(pos.tps_hit||[]).length}/{(pos.take_profits||[]).length}</span></div>
-                  <div><span style={{color:"#5c6494"}}>Kanał: </span><span style={{color:PURPLE}}>{channelNames[pos.channel]||pos.channel}</span></div>
+                  <div><span style={{color:"#5c6494"}}>Kanał: </span><span style={{color:PURPLE}}>{lookupName(pos.channel,channelNames)}</span></div>
                   <div><span style={{color:"#5c6494"}}>Otwarto: </span><span style={{color:"#9898b8"}}>{pos.opened_at?new Date(pos.opened_at).toLocaleTimeString("pl"):"-"}</span></div>
                 </div>
 
@@ -3275,6 +3283,10 @@ function ClosedTable({positions,channelNames,onRename,expandedRef:extRef,onToggl
                 ({isPos?"+":""}{pct(pnlPct)})
               </span>
               <span style={{color:YELLOW,fontSize:11}}>TP {tpsHit}/{tpsTotal}</span>
+              <span style={{color:PURPLE,fontSize:10,background:"rgba(206,147,216,.1)",
+                padding:"1px 6px",borderRadius:4}}>
+                {lookupName(pos.channel,channelNames)}
+              </span>
               <span style={{color:"#5c6494",fontSize:12}}>{isOpen?"▲":"▼"}</span>
             </div>
 
