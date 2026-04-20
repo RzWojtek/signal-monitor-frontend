@@ -363,11 +363,30 @@ const PositionRow = ({ pos, channelNames, onRename, onClose }) => {
 
 // ─── Positions Table ───────────────────────────────────────────────────────────
 function PositionsTable({positions,channelNames,onRename,onClose}){
+  const scrollRef = React.useRef(null);
+  const scrollPos = React.useRef(0);
+
+  // Zapamiętaj pozycję scrolla przed re-renderem
+  React.useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const save = () => { scrollPos.current = el.scrollLeft; };
+    el.addEventListener('scroll', save);
+    return () => el.removeEventListener('scroll', save);
+  }, []);
+
+  // Przywróć pozycję scrolla po re-renderze
+  React.useLayoutEffect(() => {
+    if (scrollRef.current && scrollPos.current > 0) {
+      scrollRef.current.scrollLeft = scrollPos.current;
+    }
+  });
+
   if(!positions.length) return(
     <div style={{color:"#7878a0",padding:30,textAlign:"center",fontSize:13}}>Brak pozycji</div>
   );
   return(
-    <div style={{overflowX:"auto"}}>
+    <div ref={scrollRef} style={{overflowX:"auto"}}>
       <table style={{width:"100%",borderCollapse:"collapse",fontFamily:"monospace",fontSize:12}}>
         <thead>
           <tr style={{borderBottom:`1px solid ${BORDER}`}}>
@@ -516,17 +535,19 @@ function ClosedPositionDetail({pos}) {
 }
 
 function ClosedTable({positions,channelNames,onRename}){
-  // useRef przeżywa re-rendery z Firebase - expanded nie resetuje się przy onSnapshot
-  const [expanded, setExpanded] = useState(null);
+  // expandedRef przeżywa re-rendery z Firebase
   const expandedRef = React.useRef(null);
+  const [, forceUpdate] = React.useReducer(x => x + 1, 0);
   const toggleExpanded = (id) => {
-    const next = expandedRef.current === id ? null : id;
-    expandedRef.current = next;
-    setExpanded(next);
+    expandedRef.current = expandedRef.current === id ? null : id;
+    forceUpdate(); // tylko odśwież widok, nie resetuj stanu
   };
   if(!positions.length) return <div style={{color:"#7878a0",textAlign:"center",padding:20,fontSize:13}}>Brak zamkniętych</div>;
   return(
-    <div style={{overflowX:"auto"}}>
+    <div style={{overflowX:"auto"}} ref={(el)=>{
+      if(el && el._scrollSaved) el.scrollLeft = el._scrollSaved;
+      if(el) el.onscroll = ()=>{ el._scrollSaved = el.scrollLeft; };
+    }}>
       <table style={{width:"100%",borderCollapse:"collapse",fontFamily:"monospace",fontSize:12}}>
         <thead>
           <tr style={{borderBottom:`1px solid ${BORDER}`}}>
