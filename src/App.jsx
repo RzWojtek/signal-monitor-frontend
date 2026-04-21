@@ -2916,8 +2916,11 @@ function BybitDashboard({portfolio, openPos, closedPos, logEvents, channelNames}
           )}
           {openPos.map(pos=>{
             const isLong=["LONG","SPOT_BUY"].includes(pos.signal_type);
-            const pnl=pos.unrealized_pnl??0;
-            const pnlPct=pos.unrealized_pnl_pct??0;
+            const unrealized=pos.unrealized_pnl??0;
+            const realized=pos.realized_pnl??0;
+            const pnl=unrealized+realized;  // łączny P&L = unrealized + zrealizowany z TP
+            const allocated=pos.allocated_usd||1;
+            const pnlPct=round2((pnl/allocated)*100);
             const isP=pnl>=0;
             return(
               <div key={pos.id} style={{background:CARD,borderRadius:10,padding:"14px 16px",
@@ -2933,6 +2936,11 @@ function BybitDashboard({portfolio, openPos, closedPos, logEvents, channelNames}
                   <span style={{color:isP?GREEN:RED,fontWeight:700,fontSize:13,marginLeft:"auto"}}>
                     {isP?"+":""}{pnl.toFixed(4)}$ ({pnlPct.toFixed(2)}%)
                   </span>
+                  {realized!==0&&(
+                    <span style={{color:"#9898b8",fontSize:10,fontFamily:"monospace"}}>
+                      unreal: {unrealized>=0?"+":""}{unrealized.toFixed(4)}$ / real: +{realized.toFixed(4)}$
+                    </span>
+                  )}
                 </div>
                 {(()=>{
                   const isLongPos=["LONG","SPOT_BUY"].includes(pos.signal_type);
