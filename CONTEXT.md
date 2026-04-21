@@ -1023,6 +1023,80 @@ for pos in get_all_open_positions():
 
 
 
+## 24. Sesja 21.04.2026 — Frontend Bybit + Naprawy krytyczne
+
+App.jsx — zmiany UI:
+Zakładka Bybit → Otwarte pozycje:
+
+Wyświetlanie stage SL: badge 50% SL / BE / TP1 (z sl_stage z Firebase)
+P&L przy SL: w nawiasie ile straty/zysku przy aktualnym SL (np. -$4.01)
+Łączny P&L = unrealized + realized (wcześniej tylko unrealized, pomijało TP partial closes)
+Rozbicie P&L: unreal: +X$ / real: +Y$ gdy są partial closes
+Secured profit row: tagi TP1: +$X @ $cena + 🔒 zabezp.: +$X gdy są partial closes
+
+Zakładka Bybit → Historia:
+
+Dodano nazwę kanału w nagłówku każdego wiersza
+
+Zakładka Kanały:
+
+Naprawiono czarny ekran — brakujący komponent ChannelStats dodany jako funkcja
+Dwie sub-zakładki: 🟡 Bybit (realne) i 📊 Symulacja
+Bybit: statystyki wyliczane z bybit_positions (zamknięte) w locie
+Badge ✅ Warto kopiować / ❌ Nie kopiuj (kryterium: WR≥50% i min. 5 tradów)
+
+Zakładka Debug — TokenBar:
+
+Dwa osobne paski: PRIMARY (3.3-70b, cyan) i FALLBACK (3.1-8b, żółty)
+Badge ● AKTYWNY przy aktualnie używanym modelu
+Każdy pasek pokazuje własne zużycie i limit
+
+health_monitor.py — osobne liczniki tokenów:
+
+primary_tokens_used i fallback_tokens_used — każde wywołanie Groq trafia do właściwego licznika
+Persystencja obu liczników w Firebase (bot_health/token_counter)
+Reset obu liczników o północy UTC
+Heartbeat wysyła 4 nowe pola: groq_primary_tokens_used/limit, groq_fallback_tokens_used/limit
+
+simulation.py — naprawy:
+
+Fix event loop bug — pobieranie ceny dla zapowiedzi zmienione z aiohttp + asyncio.run_until_complete (crashowało z This event loop is already running) na synchroniczny urllib.request
+Max SL — jeśli SL z sygnału generuje stratę >3x allocated ($24 przy $8 pozycji), bot automatycznie przesuwa SL bliżej entry. Logika: max_loss = allocated × 3
+In-memory lock (_opening_lock) — zapobiega duplikatom pozycji gdy event Telethon i polling trafią ten sam sygnał jednocześnie (race condition z Firebase)
+
+bybit_trader.py — naprawy:
+
+Fix zapowiedzi — pobieranie markPrice przez _get("/v5/market/tickers") zamiast aiohttp
+Max SL — identyczna logika jak simulation.py, używa entry_with_slip i real_qty
+Walidacja SL po real_entry — po otwarciu zlecenia sprawdza czy SL jest po właściwej stronie real_entry z Bybit. Jeśli nie → pomija SL zamiast natychmiast zamknąć pozycję
+Walidacja SL w check_tp_sl — SL musi być po właściwej stronie entry przed sprawdzeniem hit
+In-memory lock (_opening_lock) — identyczny jak simulation.py
+Auto-import obcych pozycji — sync_positions_with_bybit() wykrywa pozycje na Bybit bez odpowiednika w Firebase i automatycznie je importuje z domyślnym SL (3x allocated)
+Fix TP detection — gdy get_bybit_position() zwraca pusty wynik (pozycja zamknięta przez TP exchange-side), bot sprawdza /v5/order/history. Jeśli znajdzie filled reduce-only limit orders → rejestruje TP_HIT po właściwej cenie zamiast czekać i zamykać jako CLOSED_ON_EXCHANGE
+_update_portfolio() naprawiony — wallet_balance/available_usd/unrealized_pnl z Bybit API, realized_pnl/wins/losses z Firebase (nie z Bybit closed-pnl który przechowuje historię przed resetem konta)
+
+price_updater.py:
+
+_bybit_portfolio_sync() — wywołuje _update_portfolio() co 60s automatycznie, nawet gdy brak aktywności handlowej
+
+Nowe skrypty na VPS:
+
+edit_position.py — interaktywna edycja otwartych pozycji Bybit (SL, TP), zapis jednocześnie do Firebase i Bybit exchange-side
+
+reset_all.py — rozszerzony:
+
+Dodano czyszczenie: market_regime, ai_mentor/latest, strategy_evolution/latest
+Reset licznika tokenów Groq (primary + fallback = 0)
+
+Znane problemy pozostałe:
+
+TP detection przez /v5/order/history — wymaga weryfikacji w praktyce
+Crypto Future Signals (XAN) — chaotyczny kanał, wysyła sprzeczne sygnały w ciągu minut
+DENT/USDT — brak na Bybit Demo, brak ceny na MEXC
+
+
+
+
 
 ## PROMPT STARTOWY
 
