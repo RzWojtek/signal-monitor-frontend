@@ -2782,7 +2782,7 @@ function BybitDashboard({portfolio, openPos, closedPos, logEvents, channelNames}
                   const tpsHitArr=pos.tps_hit||[];
                   const tpsArr=pos.take_profits||[];
                   const slStage=pos.sl_stage||0; // 0=original,1=50%SL,2=BE,3=TP1
-                  const slStageLabel=slStage===3?"TP1":slStage===2?"BE":slStage===1?"50%SL":null;
+                  const slStageLabel=slStage===3?"TP1":slStage===2?"BE":slStage===1?"50% SL":null;
                   // PnL at SL
                   const slPnl=sl&&qty ? (isLongPos?(sl-entry)*qty:(entry-sl)*qty) : null;
                   const slPnlStr=slPnl!=null?(slPnl>=0?`+$${slPnl.toFixed(2)}`:`-$${Math.abs(slPnl).toFixed(2)}`):null;
