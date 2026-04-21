@@ -2623,6 +2623,12 @@ function BybitClosedRow({pos, channelNames, expanded, onToggle}) {
         </span>
         <span style={{color:"#9898b8",fontSize:11}}>x{pos.leverage}</span>
 
+        {/* Kanał */}
+        <span style={{color:PURPLE,fontSize:10,background:"rgba(206,147,216,.1)",
+          padding:"1px 6px",borderRadius:4,fontFamily:"sans-serif"}}>
+          {channelNames?.[pos.channel]||pos.channel||"?"}
+        </span>
+
         {/* Ceny */}
         <span style={{color:"#9898b8",fontSize:11,fontFamily:"monospace"}}>
           ${fmt(pos.entry_price,4)}→${fmt(pos.close_price,4)}
@@ -2767,14 +2773,37 @@ function BybitDashboard({portfolio, openPos, closedPos, logEvents, channelNames}
                     {isP?"+":""}{pnl.toFixed(4)}$ ({pnlPct.toFixed(2)}%)
                   </span>
                 </div>
-                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))",gap:8,fontSize:11,fontFamily:"monospace"}}>
-                  <div><span style={{color:"#5c6494"}}>Entry: </span><span style={{color:"#e8eaf6"}}>${pos.entry_price}</span></div>
-                  <div><span style={{color:"#5c6494"}}>Cena: </span><span style={{color:CYAN}}>${pos.current_price||"—"}</span></div>
-                  <div><span style={{color:"#5c6494"}}>SL: </span><span style={{color:RED}}>${pos.stop_loss||"—"}</span></div>
-                  <div><span style={{color:"#5c6494"}}>TP: </span><span style={{color:YELLOW}}>{(pos.tps_hit||[]).length}/{(pos.take_profits||[]).length}</span></div>
-                  <div><span style={{color:"#5c6494"}}>Kanał: </span><span style={{color:PURPLE}}>{lookupName(pos.channel,channelNames)}</span></div>
-                  <div><span style={{color:"#5c6494"}}>Otwarto: </span><span style={{color:"#9898b8"}}>{pos.opened_at?new Date(pos.opened_at).toLocaleTimeString("pl"):"-"}</span></div>
-                </div>
+                {(()=>{
+                  const isLongPos=["LONG","SPOT_BUY"].includes(pos.signal_type);
+                  const entry=pos.entry_price||0;
+                  const sl=pos.stop_loss||0;
+                  const qty=pos.quantity_remaining||pos.quantity||0;
+                  const allocated=pos.allocated_usd||0;
+                  const tpsHitArr=pos.tps_hit||[];
+                  const tpsArr=pos.take_profits||[];
+                  const slStage=pos.sl_stage||0; // 0=original,1=50%SL,2=BE,3=TP1
+                  const slStageLabel=slStage===3?"TP1":slStage===2?"BE":slStage===1?"50%SL":null;
+                  // PnL at SL
+                  const slPnl=sl&&qty ? (isLongPos?(sl-entry)*qty:(entry-sl)*qty) : null;
+                  const slPnlStr=slPnl!=null?(slPnl>=0?`+$${slPnl.toFixed(2)}`:`-$${Math.abs(slPnl).toFixed(2)}`):null;
+                  return(
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))",gap:8,fontSize:11,fontFamily:"monospace"}}>
+                    <div><span style={{color:"#5c6494"}}>Entry: </span><span style={{color:"#e8eaf6"}}>${pos.entry_price}</span></div>
+                    <div><span style={{color:"#5c6494"}}>Cena: </span><span style={{color:CYAN}}>${pos.current_price||"—"}</span></div>
+                    <div style={{display:"flex",alignItems:"center",gap:4,flexWrap:"wrap"}}>
+                      <span style={{color:"#5c6494"}}>SL: </span>
+                      <span style={{color:RED}}>${sl||"—"}</span>
+                      {slStageLabel&&<span style={{color:slStage===3?GREEN:slStage===2?YELLOW:YELLOW,
+                        fontSize:9,fontWeight:700,padding:"1px 4px",borderRadius:3,
+                        background:slStage===3?"rgba(0,230,118,.15)":"rgba(255,215,64,.15)"}}>{slStageLabel}</span>}
+                      {slPnlStr&&<span style={{color:slPnl>=0?GREEN:RED,fontSize:9}}>({slPnlStr})</span>}
+                    </div>
+                    <div><span style={{color:"#5c6494"}}>TP: </span><span style={{color:YELLOW}}>{tpsHitArr.length}/{tpsArr.length}</span></div>
+                    <div><span style={{color:"#5c6494"}}>Kanał: </span><span style={{color:PURPLE}}>{lookupName(pos.channel,channelNames)}</span></div>
+                    <div><span style={{color:"#5c6494"}}>Otwarto: </span><span style={{color:"#9898b8"}}>{pos.opened_at?new Date(pos.opened_at).toLocaleTimeString("pl"):"-"}</span></div>
+                  </div>
+                  );
+                })()}
 
                 {/* TP lista */}
                 {(pos.take_profits||[]).length>0&&(
@@ -2794,6 +2823,40 @@ function BybitDashboard({portfolio, openPos, closedPos, logEvents, channelNames}
                     })}
                   </div>
                 )}
+                {/* Secured profit per TP */}
+                {(pos.partial_closes||[]).length>0&&(()=>{
+                  const partials=pos.partial_closes||[];
+                  const tpsArr=pos.take_profits||[];
+                  const isLongPos=["LONG","SPOT_BUY"].includes(pos.signal_type);
+                  const entry=pos.entry_price||0;
+                  const allocated=pos.allocated_usd||0;
+                  // oblicz skumulowany secured profit
+                  let cumPnl=0;
+                  const rows=partials.map((pc,i)=>{
+                    cumPnl+=pc.pnl||0;
+                    return{tp:pc.tp_level,pnl:pc.pnl||0,cumPnl,price:pc.price};
+                  });
+                  return(
+                    <div style={{marginTop:6,display:"flex",gap:6,flexWrap:"wrap"}}>
+                      {rows.map((r,i)=>(
+                        <span key={i} style={{
+                          fontSize:10,fontFamily:"monospace",padding:"2px 8px",borderRadius:4,
+                          background:"rgba(0,230,118,.08)",color:GREEN,
+                          border:"1px solid rgba(0,230,118,.2)"
+                        }}>
+                          TP{r.tp}: +${r.pnl.toFixed(4)} @ ${fmt(r.price,4)}
+                        </span>
+                      ))}
+                      <span style={{
+                        fontSize:10,fontFamily:"monospace",padding:"2px 8px",borderRadius:4,
+                        background:"rgba(0,230,118,.15)",color:GREEN,fontWeight:700,
+                        border:"1px solid rgba(0,230,118,.3)"
+                      }}>
+                        🔒 zabezp.: +${cumPnl.toFixed(4)}
+                      </span>
+                    </div>
+                  );
+                })()}
               </div>
             );
           })}
