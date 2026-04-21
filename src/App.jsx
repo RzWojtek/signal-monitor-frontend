@@ -591,78 +591,128 @@ function TokenBar({used, limit, pct, currentModel, usingFallback,
   );
 }
 
-function ChannelStats({channelStats, channelNames, onRename}) {
+function ChannelStats({channelStats, channelNames, onRename, bybitPositions}) {
   const GREEN="#00e676", RED="#ff5252", YELLOW="#ffd740", CYAN="#00e5ff";
   const CARD="#1c2030", BORDER="#2e3350";
+  const [chTab, setChTab] = React.useState("bybit");
 
-  if (!channelStats.length) return (
-    <div style={{color:"#7878a0",textAlign:"center",padding:40,fontFamily:"monospace"}}>
-      Brak danych o kanałach — bot musi zebrać pierwsze sygnały
-    </div>
-  );
+  // Wylicz statystyki z bybit_positions (zamknięte)
+  const bybitStats = React.useMemo(()=>{
+    const closed = (bybitPositions||[]).filter(p=>p.status==="CLOSED");
+    const map = new Map();
+    closed.forEach(p=>{
+      const chId = String(p.channel||"").replace(/^-100/,"");
+      if(!chId) return;
+      if(!map.has(chId)) map.set(chId,{chId, wins:0, losses:0, total_pnl:0, trades:0});
+      const s = map.get(chId);
+      s.trades++;
+      const pnl = p.realized_pnl??0;
+      s.total_pnl += pnl;
+      if(pnl>=0) s.wins++; else s.losses++;
+    });
+    return Array.from(map.values()).map(s=>({
+      ...s,
+      win_rate: s.trades>0 ? Math.round(s.wins/s.trades*100) : 0,
+      avg_pnl:  s.trades>0 ? s.total_pnl/s.trades : 0,
+    })).sort((a,b)=>b.win_rate-a.win_rate);
+  }, [bybitPositions]);
+
+  const renderCards = (data, source) => {
+    if(!data.length) return (
+      <div style={{color:"#7878a0",textAlign:"center",padding:40,fontFamily:"monospace"}}>
+        {source==="bybit"
+          ? "Brak zamkniętych pozycji Bybit — potrzeba min. 1 zamkniętej pozycji"
+          : "Brak danych o kanałach — bot musi zebrać pierwsze sygnały"}
+      </div>
+    );
+    return data.map((ch,i)=>{
+      const wr      = ch.win_rate ?? 0;
+      const total   = source==="bybit" ? (ch.trades??0) : (ch.total_trades??0);
+      const wins    = ch.wins ?? 0;
+      const losses  = ch.losses ?? 0;
+      const wrColor = wr>=55?GREEN:wr>=40?YELLOW:RED;
+      const chId    = source==="bybit" ? ch.chId : String(ch.channel||ch.id||"").replace(/^-100/,"");
+      const name    = channelNames?.[chId] || ch.name || chId || "?";
+      const worthy  = wr>=50 && total>=5;
+      const totalPnl= ch.total_pnl??null;
+      const avgPnl  = ch.avg_pnl??null;
+      return (
+        <div key={chId+i} style={{background:CARD,borderRadius:10,padding:"14px 16px",
+          border:`1px solid ${worthy?"rgba(0,230,118,.2)":BORDER}`,
+          borderLeft:`3px solid ${wrColor}`}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:8}}>
+            <span style={{color:CYAN,fontWeight:800,fontSize:13,fontFamily:"monospace"}}>{name}</span>
+            <span style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:4,
+              background:worthy?"rgba(0,230,118,.15)":"rgba(255,82,82,.1)",
+              color:worthy?GREEN:RED}}>
+              {worthy?"✅ Warto kopiować":"❌ Nie kopiuj"}
+            </span>
+            <span style={{color:"#5c6494",fontSize:10,marginLeft:"auto"}}>ID: {chId}</span>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(100px,1fr))",
+            gap:8,fontSize:11,fontFamily:"monospace"}}>
+            <div>
+              <div style={{color:"#5c6494",fontSize:9,marginBottom:2}}>WIN RATE</div>
+              <div style={{color:wrColor,fontWeight:700,fontSize:14}}>{wr}%</div>
+            </div>
+            <div>
+              <div style={{color:"#5c6494",fontSize:9,marginBottom:2}}>TRADES</div>
+              <div style={{color:"#e8eaf6"}}>{total}</div>
+            </div>
+            <div>
+              <div style={{color:"#5c6494",fontSize:9,marginBottom:2}}>WINS</div>
+              <div style={{color:GREEN}}>{wins}</div>
+            </div>
+            <div>
+              <div style={{color:"#5c6494",fontSize:9,marginBottom:2}}>LOSSES</div>
+              <div style={{color:RED}}>{losses}</div>
+            </div>
+            {avgPnl!=null&&(
+              <div>
+                <div style={{color:"#5c6494",fontSize:9,marginBottom:2}}>ŚR. P&L</div>
+                <div style={{color:avgPnl>=0?GREEN:RED}}>
+                  {avgPnl>=0?"+":""}{Number(avgPnl).toFixed(2)}$
+                </div>
+              </div>
+            )}
+            {totalPnl!=null&&(
+              <div>
+                <div style={{color:"#5c6494",fontSize:9,marginBottom:2}}>ŁĄCZNY P&L</div>
+                <div style={{color:totalPnl>=0?GREEN:RED}}>
+                  {totalPnl>=0?"+":""}{Number(totalPnl).toFixed(2)}$
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    });
+  };
 
   return (
-    <div style={{display:"flex",flexDirection:"column",gap:10}}>
-      {[...channelStats].sort((a,b)=>(b.win_rate||0)-(a.win_rate||0)).map(ch=>{
-        const wr     = ch.win_rate ?? 0;
-        const total  = ch.total_trades ?? 0;
-        const wins   = ch.wins ?? 0;
-        const losses = ch.losses ?? 0;
-        const wrColor = wr>=55?GREEN:wr>=40?YELLOW:RED;
-        const chId   = String(ch.channel||ch.id||"").replace(/^-100/,"");
-        const name   = channelNames?.[chId] || ch.name || chId || "?";
-        const worthy = wr>=50 && total>=5;
-        return (
-          <div key={ch.id||chId} style={{background:CARD,borderRadius:10,padding:"14px 16px",
-            border:`1px solid ${worthy?"rgba(0,230,118,.2)":BORDER}`,
-            borderLeft:`3px solid ${wrColor}`}}>
-            <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:8}}>
-              <span style={{color:CYAN,fontWeight:800,fontSize:13,fontFamily:"monospace"}}>{name}</span>
-              <span style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:4,
-                background:worthy?"rgba(0,230,118,.15)":"rgba(255,82,82,.1)",
-                color:worthy?GREEN:RED}}>
-                {worthy?"✅ Warto kopiować":"❌ Nie kopiuj"}
-              </span>
-              <span style={{color:"#5c6494",fontSize:10,marginLeft:"auto"}}>ID: {chId}</span>
-            </div>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(100px,1fr))",
-              gap:8,fontSize:11,fontFamily:"monospace"}}>
-              <div>
-                <div style={{color:"#5c6494",fontSize:9,marginBottom:2}}>WIN RATE</div>
-                <div style={{color:wrColor,fontWeight:700,fontSize:14}}>{wr}%</div>
-              </div>
-              <div>
-                <div style={{color:"#5c6494",fontSize:9,marginBottom:2}}>TRADES</div>
-                <div style={{color:"#e8eaf6"}}>{total}</div>
-              </div>
-              <div>
-                <div style={{color:"#5c6494",fontSize:9,marginBottom:2}}>WINS</div>
-                <div style={{color:GREEN}}>{wins}</div>
-              </div>
-              <div>
-                <div style={{color:"#5c6494",fontSize:9,marginBottom:2}}>LOSSES</div>
-                <div style={{color:RED}}>{losses}</div>
-              </div>
-              {ch.avg_pnl!=null&&(
-                <div>
-                  <div style={{color:"#5c6494",fontSize:9,marginBottom:2}}>ŚR. P&L</div>
-                  <div style={{color:ch.avg_pnl>=0?GREEN:RED}}>
-                    {ch.avg_pnl>=0?"+":""}{Number(ch.avg_pnl).toFixed(2)}$
-                  </div>
-                </div>
-              )}
-              {ch.total_pnl!=null&&(
-                <div>
-                  <div style={{color:"#5c6494",fontSize:9,marginBottom:2}}>ŁĄCZNY P&L</div>
-                  <div style={{color:ch.total_pnl>=0?GREEN:RED}}>
-                    {ch.total_pnl>=0?"+":""}{Number(ch.total_pnl).toFixed(2)}$
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        );
-      })}
+    <div>
+      {/* Sub-zakładki */}
+      <div style={{display:"flex",gap:4,marginBottom:14}}>
+        {[["bybit","🟡 Bybit (realne)"],["sim","📊 Symulacja"]].map(([id,label])=>(
+          <button key={id} onClick={()=>setChTab(id)} style={{
+            padding:"6px 16px",borderRadius:6,border:"none",cursor:"pointer",
+            fontSize:11,fontWeight:700,
+            background:chTab===id?"#ffd740":"#2e3350",
+            color:chTab===id?"#0d0f17":"#9898b8",
+          }}>{label}</button>
+        ))}
+        <span style={{color:"#5c6494",fontSize:10,alignSelf:"center",marginLeft:8}}>
+          {chTab==="bybit"
+            ? `${bybitStats.length} kanałów · dane z Bybit Demo`
+            : `${channelStats.length} kanałów · dane z symulacji`}
+        </span>
+      </div>
+      {/* Karty */}
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        {chTab==="bybit"
+          ? renderCards(bybitStats, "bybit")
+          : renderCards(channelStats, "sim")}
+      </div>
     </div>
   );
 }
@@ -3294,7 +3344,7 @@ export default function App(){
         </Card>}
 
         {tab==="channels"&&<Card color={ORANGE} title="STATYSTYKI KANAŁÓW">
-          <ChannelStats channelStats={channelStats} channelNames={channelNames} onRename={handleRename}/>
+          <ChannelStats channelStats={channelStats} channelNames={channelNames} onRename={handleRename} bybitPositions={bybitClosedPos}/>
         </Card>}
 
         {tab==="signals"&&<div>
