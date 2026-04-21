@@ -521,41 +521,148 @@ function AlertBanner({alerts}) {
   );
 }
 
-function TokenBar({used, limit, pct, currentModel, usingFallback}) {
-  const safePct = Math.min(pct||0, 100);
-  const color = safePct>90?"#ff5c7a":safePct>70?"#ffe066":"#00e5ff";
-  const modelName = currentModel
-    ? currentModel.replace("llama-","").replace("-versatile","").replace("-instant","")
-    : "—";
+function TokenBar({used, limit, pct, currentModel, usingFallback,
+                   primaryUsed, primaryLimit, fallbackUsed, fallbackLimit}) {
+  const PRIMARY_LIMIT  = primaryLimit  || 100_000;
+  const FALLBACK_LIMIT = fallbackLimit || 1_000_000;
+  const pUsed = primaryUsed  ?? (usingFallback ? PRIMARY_LIMIT  : (used||0));
+  const fUsed = fallbackUsed ?? (usingFallback ? (used||0)      : 0);
+  const pPct  = Math.min(pUsed / PRIMARY_LIMIT  * 100, 100);
+  const fPct  = Math.min(fUsed / FALLBACK_LIMIT * 100, 100);
+  const pColor = pPct>90?"#ff5c7a":pPct>70?"#ffe066":"#00e5ff";
+  const fColor = fPct>90?"#ff5c7a":fPct>70?"#ffe066":"#ce93d8";
+  const isUsingPrimary = !usingFallback;
+
   return (
-    <div>
-      <div style={{display:"flex",justifyContent:"space-between",marginBottom:5,fontSize:11,fontFamily:"monospace"}}>
-        <span style={{color:"#9898b8"}}>Zużyto dziś</span>
-        <span style={{color}}>
-          {(used||0).toLocaleString()} / {(limit||100000).toLocaleString()} tokenów ({pct||0}%)
-        </span>
-      </div>
-      <div style={{background:"#2e2e46",borderRadius:4,height:8,overflow:"hidden"}}>
-        <div style={{
-          width:`${safePct}%`,height:"100%",
-          background:`linear-gradient(90deg,${color}80,${color})`,
-          borderRadius:4,transition:"width 1s ease",
-        }}/>
-      </div>
-      <div style={{display:"flex",justifyContent:"space-between",marginTop:4}}>
-        <div style={{color:"#7878a0",fontSize:10}}>
-          Pozostało: <span style={{color}}>{Math.max((limit||100000)-(used||0),0).toLocaleString()} tokenów</span>
-          {" · "}Reset: codziennie o północy UTC
-        </div>
-        {currentModel && (
-          <div style={{fontSize:10,fontFamily:"monospace",
-            color: usingFallback?"#ffd740":"#00e676",
-            background: usingFallback?"rgba(255,215,64,.1)":"rgba(0,230,118,.1)",
-            padding:"1px 6px",borderRadius:4}}>
-            {usingFallback?"⚠ fallback":"✅ primary"}: {modelName}
+    <div style={{display:"flex",flexDirection:"column",gap:8}}>
+      {/* Pasek PRIMARY */}
+      <div style={{padding:"8px 10px",borderRadius:6,
+        border:`1px solid ${isUsingPrimary?"rgba(0,229,255,.3)":"rgba(92,100,148,.3)"}`,
+        background:isUsingPrimary?"rgba(0,229,255,.04)":"transparent"}}>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:4,fontSize:10,fontFamily:"monospace"}}>
+          <div style={{display:"flex",alignItems:"center",gap:6}}>
+            <span style={{color:isUsingPrimary?"#00e5ff":"#5c6494",fontWeight:700}}>
+              🤖 PRIMARY — 3.3-70b
+            </span>
+            {isUsingPrimary&&<span style={{background:"rgba(0,230,118,.15)",color:"#00e676",
+              fontSize:9,padding:"1px 5px",borderRadius:3,fontWeight:700}}>● AKTYWNY</span>}
           </div>
-        )}
+          <span style={{color:pColor}}>
+            {pUsed.toLocaleString()} / {PRIMARY_LIMIT.toLocaleString()} ({pPct.toFixed(1)}%)
+          </span>
+        </div>
+        <div style={{background:"#2e2e46",borderRadius:4,height:6,overflow:"hidden"}}>
+          <div style={{width:`${pPct}%`,height:"100%",
+            background:`linear-gradient(90deg,${pColor}80,${pColor})`,
+            borderRadius:4,transition:"width 1s ease"}}/>
+        </div>
+        <div style={{color:"#5c6494",fontSize:9,marginTop:3}}>
+          Pozostało: <span style={{color:pColor}}>{Math.max(PRIMARY_LIMIT-pUsed,0).toLocaleString()} tokenów</span>
+          {" · "}Reset o północy UTC
+        </div>
       </div>
+      {/* Pasek FALLBACK */}
+      <div style={{padding:"8px 10px",borderRadius:6,
+        border:`1px solid ${!isUsingPrimary?"rgba(255,215,64,.3)":"rgba(92,100,148,.3)"}`,
+        background:!isUsingPrimary?"rgba(255,215,64,.04)":"transparent"}}>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:4,fontSize:10,fontFamily:"monospace"}}>
+          <div style={{display:"flex",alignItems:"center",gap:6}}>
+            <span style={{color:!isUsingPrimary?"#ffd740":"#5c6494",fontWeight:700}}>
+              ⚠️ FALLBACK — 3.1-8b
+            </span>
+            {!isUsingPrimary&&<span style={{background:"rgba(255,215,64,.15)",color:"#ffd740",
+              fontSize:9,padding:"1px 5px",borderRadius:3,fontWeight:700}}>● AKTYWNY</span>}
+          </div>
+          <span style={{color:fColor}}>
+            {fUsed.toLocaleString()} / {FALLBACK_LIMIT.toLocaleString()} ({fPct.toFixed(1)}%)
+          </span>
+        </div>
+        <div style={{background:"#2e2e46",borderRadius:4,height:6,overflow:"hidden"}}>
+          <div style={{width:`${fPct}%`,height:"100%",
+            background:`linear-gradient(90deg,${fColor}80,${fColor})`,
+            borderRadius:4,transition:"width 1s ease"}}/>
+        </div>
+        <div style={{color:"#5c6494",fontSize:9,marginTop:3}}>
+          Pozostało: <span style={{color:fColor}}>{Math.max(FALLBACK_LIMIT-fUsed,0).toLocaleString()} tokenów</span>
+          {" · "}Limit 1M/dzień
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ChannelStats({channelStats, channelNames, onRename}) {
+  const GREEN="#00e676", RED="#ff5252", YELLOW="#ffd740", CYAN="#00e5ff";
+  const CARD="#1c2030", BORDER="#2e3350";
+
+  if (!channelStats.length) return (
+    <div style={{color:"#7878a0",textAlign:"center",padding:40,fontFamily:"monospace"}}>
+      Brak danych o kanałach — bot musi zebrać pierwsze sygnały
+    </div>
+  );
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:10}}>
+      {[...channelStats].sort((a,b)=>(b.win_rate||0)-(a.win_rate||0)).map(ch=>{
+        const wr     = ch.win_rate ?? 0;
+        const total  = ch.total_trades ?? 0;
+        const wins   = ch.wins ?? 0;
+        const losses = ch.losses ?? 0;
+        const wrColor = wr>=55?GREEN:wr>=40?YELLOW:RED;
+        const chId   = String(ch.channel||ch.id||"").replace(/^-100/,"");
+        const name   = channelNames?.[chId] || ch.name || chId || "?";
+        const worthy = wr>=50 && total>=5;
+        return (
+          <div key={ch.id||chId} style={{background:CARD,borderRadius:10,padding:"14px 16px",
+            border:`1px solid ${worthy?"rgba(0,230,118,.2)":BORDER}`,
+            borderLeft:`3px solid ${wrColor}`}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:8}}>
+              <span style={{color:CYAN,fontWeight:800,fontSize:13,fontFamily:"monospace"}}>{name}</span>
+              <span style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:4,
+                background:worthy?"rgba(0,230,118,.15)":"rgba(255,82,82,.1)",
+                color:worthy?GREEN:RED}}>
+                {worthy?"✅ Warto kopiować":"❌ Nie kopiuj"}
+              </span>
+              <span style={{color:"#5c6494",fontSize:10,marginLeft:"auto"}}>ID: {chId}</span>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(100px,1fr))",
+              gap:8,fontSize:11,fontFamily:"monospace"}}>
+              <div>
+                <div style={{color:"#5c6494",fontSize:9,marginBottom:2}}>WIN RATE</div>
+                <div style={{color:wrColor,fontWeight:700,fontSize:14}}>{wr}%</div>
+              </div>
+              <div>
+                <div style={{color:"#5c6494",fontSize:9,marginBottom:2}}>TRADES</div>
+                <div style={{color:"#e8eaf6"}}>{total}</div>
+              </div>
+              <div>
+                <div style={{color:"#5c6494",fontSize:9,marginBottom:2}}>WINS</div>
+                <div style={{color:GREEN}}>{wins}</div>
+              </div>
+              <div>
+                <div style={{color:"#5c6494",fontSize:9,marginBottom:2}}>LOSSES</div>
+                <div style={{color:RED}}>{losses}</div>
+              </div>
+              {ch.avg_pnl!=null&&(
+                <div>
+                  <div style={{color:"#5c6494",fontSize:9,marginBottom:2}}>ŚR. P&L</div>
+                  <div style={{color:ch.avg_pnl>=0?GREEN:RED}}>
+                    {ch.avg_pnl>=0?"+":""}{Number(ch.avg_pnl).toFixed(2)}$
+                  </div>
+                </div>
+              )}
+              {ch.total_pnl!=null&&(
+                <div>
+                  <div style={{color:"#5c6494",fontSize:9,marginBottom:2}}>ŁĄCZNY P&L</div>
+                  <div style={{color:ch.total_pnl>=0?GREEN:RED}}>
+                    {ch.total_pnl>=0?"+":""}{Number(ch.total_pnl).toFixed(2)}$
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -623,7 +730,11 @@ function BotHealthDashboard({health, channelNames, openPos}) {
             <TokenBar used={health.groq_tokens_used} limit={health.groq_tokens_limit}
               pct={health.groq_tokens_pct}
               currentModel={health.groq_current_model}
-              usingFallback={health.groq_using_fallback}/>
+              usingFallback={health.groq_using_fallback}
+              primaryUsed={health.groq_primary_tokens_used}
+              primaryLimit={health.groq_primary_tokens_limit}
+              fallbackUsed={health.groq_fallback_tokens_used}
+              fallbackLimit={health.groq_fallback_tokens_limit}/>
             {health.groq_avg_response_ms>0&&(
               <div style={{color:"#9898b8",fontSize:11,marginTop:6}}>
                 Śr. czas odpowiedzi Groq:{" "}
