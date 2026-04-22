@@ -1174,6 +1174,68 @@ DENT/USDT — brak na Bybit Demo (contract not live), brak ceny na MEXC
 
 
 
+## Podsumowanie sesji 22.04.2026
+
+1. bybit_trader.py — rozróżnienie None vs {} w get_bybit_position()
+Problem: Funkcja zwracała {} zarówno przy błędzie API jak i przy potwierdzonym braku pozycji. Cały kod traktował oba przypadki tak samo — po 60s zamykał pozycję w Firebase mimo że na Bybit była otwarta (przypadek ACU/USDT i MET/USDT).
+Fix:
+
+get_bybit_position() zwraca teraz None przy błędzie API/timeout, {} tylko gdy retCode==0 i size==0
+check_tp_sl(): gdy None → pomiń iterację, gdy {} → zamknij
+sync_positions_with_bybit(): None = ignoruj całkowicie; wymaga teraz 3 potwierdzeń + 120 sekund nieobecności (było: 2 + 60s); struktura cache zmieniona na {"first_seen": ts, "count": n}
+partial_close_on_tp(): gdy None → fallback na qty z Firebase
+open_position(): retry 3x po złożeniu zlecenia jeśli API zwróci None
+
+
+2. channels/ — pre_filter i prompty (5 kanałów)
+base_channel.py — normalizacja symbolu (globalna):
+
+sym.replace(" ", "") — usuwa spacje (XRP/ USDT → XRP/USDT)
+Jeśli brak / i kończy się na USDT z len >= 5 → dzieli: HUSDT → H/USDT, BTCUSDT → BTC/USDT
+
+crypto_future_signals.py:
+
+pre_filter: dodano \btp\s+\d+\s+[\d.]+ dla formatu Tp 1 0.083 oraz wykrywanie wersji edytowanej z Leverage
+prompt: dodano przykład #HUSDT → H/USDT i format edytowany z ①②③ Tp
+
+crypto_devil.py:
+
+pre_filter: entry\s*:\s*\$?\s*[\d.] — obsługa Entry : $ 86.03 (spacja + dolar)
+prompt: dodano przykład SOL/USD SELL z pełnym formatem $ X
+
+crypto_world.py:
+
+pre_filter: dodano re.match(r"^tp\s+[\d.]", t) dla samotnych linii Tp 0.01690; uproszczono check signal alert
+prompt: dodano BAS/USDT jako przykład zapowiedzi, wyjaśnienie że Tp X bez numeru = TP1
+
+binance_360.py:
+
+pre_filter: dodano "futures (free signal)" in t i stop\s+loss\s*:\s*\d; entry zone bez wymagania kropki dziesiętnej
+prompt: dodano przykłady ONT/USDT i BTC/USDT z dużymi liczbami, wyjaśnienie Stop loss :X bez spacji
+
+
+3. bybit_trader.py — CLOSED_ON_EXCHANGE przez niekompletne zlecenia TP
+Problem (CHIP/USDT): set_tp_orders_on_bybit() obliczał qty = qty_remaining * close_pct / 100, gdzie close_pct to % oryginalnej pozycji. Po TP3 (qty_remaining=936), zlecenia TP4(15%)+TP5(7%)+TP6(3%) pokrywały tylko 234/936 CHIP = 25%. Pozostałe 702 CHIP było bez zlecenia. Gdy SL dotknął ceny — Bybit zamknął całą pozycję → CLOSED_ON_EXCHANGE.
+Fix: Przeliczanie proporcjonalne względem sumy close_pct pozostałych TP:
+TP4(15%) + TP5(7%) + TP6(3%) = suma 25%
+TP4 dostaje: 15/25 = 60% z qty_remaining
+TP5 dostaje: 7/25  = 28% z qty_remaining
+TP6 dostaje: reszta (chroni przed błędami zaokrągleń)
+Suma = 100% qty_remaining ✅
+Dotyczy zarówno pierwszego wystawienia jak i każdego re-order po partial close. Dodano też warning log gdy uncovered qty > qty_step.
+
+Pliki zmienione
+
+bybit_trader.py (2 niezależne fixy)
+channels/base_channel.py
+channels/crypto_future_signals.py
+channels/crypto_devil.py
+channels/crypto_world.py
+channels/binance_360.py
+
+Deployment
+bashpm2 reload signal-bot  # tylko po 22:00 UTC
+
 
 ## PROMPT STARTOWY
 
