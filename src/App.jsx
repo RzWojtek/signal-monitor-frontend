@@ -1911,12 +1911,10 @@ function IntelligenceDashboard({closedPos, channelNames, marketRegime, aiMentor,
 // ─── 👥 SHADOW PORTFOLIO DASHBOARD ────────────────────────────────────────────
 function ShadowPortfolioDashboard({portfolios, positions, realPortfolio}) {
   const STRATEGY_META = {
-    conservative: {name:"🛡️ Konserwatywna", color:"#82b1ff", desc:"1% ryzyko · max dźwignia 20x · tylko kanały z WR >50%"},
-    current:      {name:"⚖️ Obecna (3%)",   color:"#00e5ff", desc:"Mirror starej strategii · 3% ryzyko · wszystkie kanały"},
-    aggressive:   {name:"🚀 Agresywna",     color:"#ff9f43", desc:"5% ryzyko · wszystkie kanały · pełna dźwignia"},
-    breakeven:    {name:"🔒 Break-Even",    color:"#ce93d8", desc:"5% ryzyko · SL → cena wejścia po TP1 · agresywna z ochroną BE"},
-    front_loaded: {name:"💰 Front-Loaded",  color:"#69f0ae", desc:"3% ryzyko · TP1=40% · TP2=35% · TP3=25% · malejąca realizacja zysku"},
-    sniper:       {name:"🎯 Sniper",        color:"#ffd740", desc:"2% ryzyko · max 30x · kanały WR >55% · BE po TP1 · jakość > ilość"},
+    tp1_all:     {name:"🎯 TP1 All-In",   color:"#69f0ae", desc:"100% zamknięcie na TP1 · SL cap 150% · BE po TP1"},
+    tp2_8020:    {name:"✂️ TP2 80/20",    color:"#82b1ff", desc:"80% na TP1 · 20% na TP2 · SL cap 150% · Tight Trailing"},
+    tp3_603010:  {name:"📊 TP3 60/30/10", color:"#00e5ff", desc:"60% TP1 · 30% TP2 · 10% TP3 · SL cap 150% · Tight Trailing"},
+    tight_sl:    {name:"🔒 Tight SL",     color:"#ffd740", desc:"Oryginalny TP z sygnału · SL cap 150% · Tight Trailing po każdym TP"},
   };
 
   const [activeStrategy, setActiveStrategy] = useState(null);
@@ -1950,8 +1948,8 @@ function ShadowPortfolioDashboard({portfolios, positions, realPortfolio}) {
       <div style={{background:"#1c2030",border:"2px solid rgba(0,229,255,.3)",borderRadius:12,padding:"14px 16px"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
           <div>
-            <div style={{color:"#00e5ff",fontFamily:"monospace",fontSize:13,fontWeight:700}}>📊 Twój portfel (aktywny)</div>
-            <div style={{color:"#5c6494",fontSize:10,marginTop:2}}>{real.risk_pct||4}% ryzyko · rzeczywiste transakcje</div>
+            <div style={{color:"#00e5ff",fontFamily:"monospace",fontSize:13,fontWeight:700}}>📊 Twój portfel Bybit (aktywny)</div>
+            <div style={{color:"#5c6494",fontSize:10,marginTop:2}}>rzeczywiste transakcje · dane z zakładki Bybit</div>
           </div>
           <div style={{display:"flex",gap:16,flexWrap:"wrap"}}>
             <div style={{textAlign:"center"}}>
@@ -2123,7 +2121,7 @@ function ShadowPortfolioDashboard({portfolios, positions, realPortfolio}) {
                   fontSize:11,minWidth:400}}>
                   <thead>
                     <tr style={{borderBottom:"1px solid #2e3350"}}>
-                      {["Symbol","Typ","Entry","P&L","Dźwignia"].map(h=>(
+                      {["Symbol","Typ","Entry","P&L","TP","SL Stage"].map(h=>(
                         <th key={h} style={{color:"#5c6494",fontSize:9,padding:"6px 8px",
                           textAlign:"left",textTransform:"uppercase",whiteSpace:"nowrap"}}>{h}</th>
                       ))}
@@ -2131,8 +2129,13 @@ function ShadowPortfolioDashboard({portfolios, positions, realPortfolio}) {
                   </thead>
                   <tbody>
                     {selPositions.filter(p=>p.status==="OPEN").map(p=>{
-                      const pnl = p.unrealized_pnl||0;
-                      const isL = ["LONG","SPOT_BUY"].includes(p.signal_type);
+                      const pnl    = p.unrealized_pnl||0;
+                      const isL    = ["LONG","SPOT_BUY"].includes(p.signal_type);
+                      const tpsHit = p.tps_hit||[];
+                      const tpsAll = p.take_profits||[];
+                      const slStage = p.sl_stage||0;
+                      const slLabels = ["Oryginalny","🔒 BE","📈 TP1","📈 TP2","📈 TP3"];
+                      const slColors = ["#ff5252","#ffd740","#69f0ae","#00e5ff","#82b1ff"];
                       return (
                         <tr key={p.id} style={{borderBottom:"1px solid rgba(46,51,80,.3)"}}>
                           <td style={{padding:"6px 8px",color:"#e8eaf6",fontWeight:700}}>{p.symbol}</td>
@@ -2145,7 +2148,18 @@ function ShadowPortfolioDashboard({portfolios, positions, realPortfolio}) {
                           <td style={{padding:"6px 8px",color:"#9898b8"}}>${p.entry_price?.toPrecision(4)||"—"}</td>
                           <td style={{padding:"6px 8px",fontWeight:700,
                             color:pnl>=0?"#00e676":"#ff5252"}}>{pnl>=0?"+":""}{pnl.toFixed(2)}$</td>
-                          <td style={{padding:"6px 8px",color:"#ffd740"}}>x{p.leverage}</td>
+                          <td style={{padding:"6px 8px",color:"#9898b8",fontSize:10}}>
+                            {tpsHit.length}/{tpsAll.length}
+                          </td>
+                          <td style={{padding:"6px 8px"}}>
+                            <span style={{
+                              background: slColors[slStage]+"22",
+                              color: slColors[slStage],
+                              padding:"1px 6px",borderRadius:3,fontSize:9,fontFamily:"monospace",whiteSpace:"nowrap"
+                            }}>
+                              {slLabels[slStage]||"—"}
+                            </span>
+                          </td>
                         </tr>
                       );
                     })}
@@ -2159,8 +2173,8 @@ function ShadowPortfolioDashboard({portfolios, positions, realPortfolio}) {
 
       <div style={{background:"#141720",border:"1px solid #2e3350",borderRadius:8,
         padding:"10px 14px",fontSize:11,color:"#5c6494",lineHeight:1.6}}>
-        💡 Kliknij kartę żeby zobaczyć szczegóły. Shadow portfolio śledzi te same sygnały co bot
-        z różnymi parametrami — bez realnych pieniędzy.
+        💡 Kliknij kartę żeby zobaczyć szczegóły. Shadow portfolio śledzi te same pozycje co zakładka Bybit
+        z różnymi strategiami TP/SL — bez realnych pieniędzy. SL stage: 🔒 BE = break-even, 📈 TP1/TP2 = zabezpieczony zysk.
       </div>
     </div>
   );
