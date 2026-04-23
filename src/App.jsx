@@ -2148,58 +2148,129 @@ function ChannelTester({channels, signals, db}) {
             ))}
           </div>
 
-          {/* Tabela sygnałów */}
+          {/* Lista sygnałów — karty */}
           {selSignals.length > 0 ? (
-            <div style={{overflowX:"auto",WebkitOverflowScrolling:"touch"}}>
-              <table style={{width:"100%",borderCollapse:"collapse",fontFamily:"monospace",fontSize:11,minWidth:560}}>
-                <thead>
-                  <tr style={{borderBottom:"1px solid #2e3350"}}>
-                    {["Data","Symbol","Typ","Entry","Wynik","P&L"].map(h=>(
-                      <th key={h} style={{color:"#5c6494",fontSize:9,padding:"6px 8px",
-                        textAlign:"left",textTransform:"uppercase",whiteSpace:"nowrap"}}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {selSignals.map(s=>{
-                    const isL  = ["LONG","SPOT_BUY"].includes(s.signal_type);
-                    const hit  = s.hit||"?";
-                    const isTP = hit.startsWith("TP");
-                    const isSL = hit==="SL";
-                    const isOP = hit==="OPEN";
-                    const isND = hit==="NO_DATA";
-                    const hitColor = isTP?GREEN:isSL?RED:isOP?YELLOW:GRAY;
-                    const pnl  = s.pnl_usd||0;
-                    return (
-                      <tr key={s.id} style={{borderBottom:"1px solid rgba(46,51,80,.3)"}}>
-                        <td style={{padding:"5px 8px",color:"#5c6494",fontSize:9,whiteSpace:"nowrap"}}>
-                          {s.date?s.date.substring(0,10):"—"}
-                        </td>
-                        <td style={{padding:"5px 8px",color:"#e8eaf6",fontWeight:700}}>{s.symbol}</td>
-                        <td style={{padding:"5px 8px"}}>
-                          <span style={{background:isL?"rgba(0,230,118,.15)":"rgba(255,82,82,.15)",
-                            color:isL?GREEN:RED,padding:"1px 5px",borderRadius:3,fontSize:9}}>
-                            {s.signal_type}
-                          </span>
-                        </td>
-                        <td style={{padding:"5px 8px",color:GRAY}}>
-                          ${s.entry_price?.toPrecision(4)||"—"}
-                        </td>
-                        <td style={{padding:"5px 8px"}}>
-                          <span style={{background:hitColor+"22",color:hitColor,
-                            padding:"1px 6px",borderRadius:3,fontSize:9}}>
-                            {isND?"NO DATA":hit}
-                          </span>
-                        </td>
-                        <td style={{padding:"5px 8px",fontWeight:700,
-                          color:pnl>=0?GREEN:RED,whiteSpace:"nowrap"}}>
-                          {pnl>=0?"+":""}{pnl.toFixed(2)}$
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              {selSignals.map(s=>{
+                const isL    = ["LONG","SPOT_BUY"].includes(s.signal_type);
+                const hit    = s.hit||"?";
+                const isTP   = hit.startsWith("TP");
+                const isSL   = hit==="SL";
+                const isOP   = hit==="OPEN";
+                const isND   = hit==="NO_DATA";
+                const hitColor = isTP?GREEN:isSL?RED:isOP?YELLOW:GRAY;
+                const pnl    = s.pnl_usd||0;
+                const pnlPct = s.pnl_pct||0;
+                const tps    = s.take_profits||[];
+                const tpsHit = s.tps_hit||[];
+                const sl     = s.stop_loss;
+                const hitTime = s.hit_time ? s.hit_time.substring(0,16).replace("T"," ") : null;
+                const sigDate = s.date ? s.date.substring(0,16).replace("T"," ") : "—";
+
+                return (
+                  <div key={s.id} style={{
+                    background:"#0d0f17",
+                    border:`1px solid ${isTP?"#00e67622":isSL?"#ff525222":isOP?"#ffd74022":"#2e3350"}`,
+                    borderLeft:`3px solid ${hitColor}`,
+                    borderRadius:8, padding:"10px 12px",
+                  }}>
+                    {/* Wiersz 1 — symbol, typ, wynik, P&L */}
+                    <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:6}}>
+                      <span style={{color:"#e8eaf6",fontFamily:"monospace",fontSize:13,fontWeight:700}}>
+                        {s.symbol}
+                      </span>
+                      <span style={{background:isL?"rgba(0,230,118,.15)":"rgba(255,82,82,.15)",
+                        color:isL?GREEN:RED,padding:"1px 6px",borderRadius:3,fontSize:9,fontFamily:"monospace"}}>
+                        {s.signal_type}
+                      </span>
+                      <span style={{background:hitColor+"22",color:hitColor,
+                        padding:"1px 8px",borderRadius:3,fontSize:10,fontFamily:"monospace",fontWeight:700}}>
+                        {isND?"❓ BRAK DANYCH":isOP?"⏳ OTWARTA":isSL?"🛑 SL":isTP?`🎯 ${hit}`:"?"}
+                      </span>
+                      <span style={{
+                        marginLeft:"auto",fontFamily:"monospace",fontSize:14,fontWeight:800,
+                        color:pnl>=0?GREEN:RED,
+                      }}>
+                        {pnl>=0?"+":""}{pnl.toFixed(2)}$ <span style={{fontSize:10,fontWeight:400,color:pnl>=0?"#69f0ae":"#ff7070"}}>({pnlPct>=0?"+":""}{pnlPct.toFixed(1)}%)</span>
+                      </span>
+                    </div>
+
+                    {/* Wiersz 2 — entry, SL, czas sygnału */}
+                    <div style={{display:"flex",gap:16,flexWrap:"wrap",marginBottom:6,fontSize:10,fontFamily:"monospace"}}>
+                      <span style={{color:"#5c6494"}}>
+                        📅 <span style={{color:"#7878a8"}}>{sigDate}</span>
+                      </span>
+                      <span style={{color:"#5c6494"}}>
+                        Entry: <span style={{color:"#b8b8d0"}}>${s.entry_price?.toPrecision(5)||"—"}</span>
+                      </span>
+                      {sl && (
+                        <span style={{color:"#5c6494"}}>
+                          SL: <span style={{color:RED+"cc"}}>${sl?.toPrecision(5)}</span>
+                        </span>
+                      )}
+                      {s.leverage > 1 && (
+                        <span style={{color:"#5c6494"}}>
+                          Dźwignia: <span style={{color:YELLOW}}>x{s.leverage}</span>
+                        </span>
+                      )}
+                      {hitTime && (
+                        <span style={{color:"#5c6494"}}>
+                          {isSL?"🛑 trafiony":"🎯 trafiony"}: <span style={{color:hitColor}}>{hitTime}</span>
+                        </span>
+                      )}
+                      {s.hit_price && !isOP && !isND && (
+                        <span style={{color:"#5c6494"}}>
+                          @ <span style={{color:hitColor}}>${s.hit_price?.toPrecision(5)}</span>
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Wiersz 3 — pasek TP */}
+                    {tps.length > 0 && (
+                      <div style={{display:"flex",gap:4,flexWrap:"wrap",alignItems:"center"}}>
+                        <span style={{color:"#5c6494",fontSize:9,marginRight:2}}>TP:</span>
+                        {tps.map(tp=>{
+                          const tpHit  = tpsHit.includes(tp.level);
+                          const isCurr = hit===`TP${tp.level}`;
+                          return (
+                            <div key={tp.level} style={{
+                              background: tpHit ? GREEN+"22" : "#1c2030",
+                              border:`1px solid ${tpHit?GREEN:isSL?"#ff525244":"#2e3350"}`,
+                              borderRadius:4, padding:"2px 7px",
+                              display:"flex",flexDirection:"column",alignItems:"center",
+                            }}>
+                              <span style={{
+                                color: tpHit?GREEN:isSL?"#5c6494":"#7878a8",
+                                fontSize:9,fontFamily:"monospace",fontWeight:tpHit?700:400,
+                              }}>
+                                {tpHit?"✅":"○"} TP{tp.level}
+                              </span>
+                              <span style={{color:"#5c6494",fontSize:8,fontFamily:"monospace"}}>
+                                ${tp.price?.toPrecision(4)||"?"}
+                              </span>
+                              {tp.close_pct && (
+                                <span style={{color:"#3d4468",fontSize:7}}>
+                                  {tp.close_pct}%
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })}
+                        {/* Podsumowanie trafionych */}
+                        <span style={{color:"#5c6494",fontSize:9,marginLeft:4}}>
+                          {tpsHit.length}/{tps.length} trafionych
+                        </span>
+                        {isSL && tpsHit.length===0 && (
+                          <span style={{color:RED,fontSize:9,marginLeft:4}}>— SL przed TP1</span>
+                        )}
+                        {isSL && tpsHit.length>0 && (
+                          <span style={{color:YELLOW,fontSize:9,marginLeft:4}}>— SL po {tpsHit.length} TP</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           ) : (
             <div style={{color:GRAY,fontSize:12,textAlign:"center",padding:20}}>
