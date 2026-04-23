@@ -3,6 +3,7 @@ import { initializeApp } from "firebase/app";
 import {
   getFirestore, collection, query, orderBy,
   limit, onSnapshot, doc, setDoc, getDocs, updateDoc, getDoc,
+  addDoc, deleteDoc,
 } from "firebase/firestore";
 
 const firebaseConfig = {
@@ -1908,6 +1909,317 @@ function IntelligenceDashboard({closedPos, channelNames, marketRegime, aiMentor,
 }
 
 
+// ─── 🔬 CHANNEL TESTER ────────────────────────────────────────────────────────
+function ChannelTester({channels, signals, db}) {
+  const [newId,   setNewId]   = useState("");
+  const [newName, setNewName] = useState("");
+  const [adding,  setAdding]  = useState(false);
+  const [selCh,   setSelCh]   = useState(null);   // wybrany kanał → szczegóły
+
+  const GREEN  = "#00e676";
+  const RED    = "#ff5252";
+  const YELLOW = "#ffd740";
+  const CYAN   = "#00e5ff";
+  const GRAY   = "#9898b8";
+
+  // Dodaj nowy kanał
+  const addChannel = async () => {
+    const id = newId.trim().replace(/\D/g,"");
+    if (!id) return;
+    setAdding(true);
+    try {
+      await addDoc(collection(db,"test_channels"),{
+        channel_id:  id,
+        name:        newName.trim() || `Kanał ${id}`,
+        status:      "pending",
+        added_at:    new Date().toISOString(),
+        total_signals: 0,
+        wins: 0, losses: 0, win_rate: 0, total_pnl_usd: 0,
+      });
+      setNewId(""); setNewName("");
+    } catch(e){ alert("Błąd dodawania: "+e.message); }
+    setAdding(false);
+  };
+
+  // Usuń kanał i jego sygnały
+  const removeChannel = async (ch) => {
+    if (!window.confirm(`Usunąć kanał ${ch.name}?`)) return;
+    // Usuń sygnały
+    const sigs = signals.filter(s=>s.channel_doc_id===ch.id);
+    for(const s of sigs){
+      await deleteDoc(doc(db,"test_signals",s.id));
+    }
+    await deleteDoc(doc(db,"test_channels",ch.id));
+    if(selCh?.id===ch.id) setSelCh(null);
+  };
+
+  // Wymuś ponowną analizę
+  const reanalyze = async (ch) => {
+    await updateDoc(doc(db,"test_channels",ch.id),{status:"pending"});
+  };
+
+  const fmt = (n,d=2) => n!=null?(Number(n)>=0?"+":"")+Number(n).toFixed(d):"—";
+  const wrColor = wr => wr>=55?GREEN:wr>=40?YELLOW:RED;
+
+  const statusBadge = (status) => {
+    const map = {
+      pending:   {label:"⏳ Oczekuje",  color:YELLOW},
+      analyzing: {label:"🔄 Analizuję", color:CYAN},
+      done:      {label:"✅ Gotowy",    color:GREEN},
+      error:     {label:"❌ Błąd",      color:RED},
+    };
+    const s = map[status]||{label:status||"?",color:GRAY};
+    return (
+      <span style={{background:s.color+"22",color:s.color,
+        padding:"2px 8px",borderRadius:4,fontSize:10,fontFamily:"monospace"}}>
+        {s.label}
+      </span>
+    );
+  };
+
+  const selSignals = selCh ? signals.filter(s=>s.channel_doc_id===selCh.id) : [];
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:14}}>
+
+      {/* Nagłówek + opis */}
+      <div style={{background:"#1c2030",border:"1px solid #2e3350",borderRadius:10,padding:"14px 16px"}}>
+        <div style={{color:CYAN,fontFamily:"monospace",fontSize:13,fontWeight:700,marginBottom:6}}>
+          🔬 Tester kanałów Telegram
+        </div>
+        <div style={{color:GRAY,fontSize:11,lineHeight:1.6}}>
+          Dodaj ID kanału Telegram żeby przetestować jego historyczne sygnały z ostatnich 7 dni.
+          Skrypt VPS (<code style={{color:CYAN}}>channel-tester</code>) automatycznie pobierze wiadomości,
+          sparsuje sygnały przez Groq i sprawdzi wyniki na danych MEXC. Symulacja: <b style={{color:YELLOW}}>$10 na trade</b>.
+          Co tydzień (pon 06:00 UTC) dane są odświeżane automatycznie.
+        </div>
+      </div>
+
+      {/* Formularz dodawania */}
+      <div style={{background:"#1c2030",border:"1px solid #2e3350",borderRadius:10,padding:"14px 16px"}}>
+        <div style={{color:GRAY,fontSize:10,letterSpacing:"0.1em",textTransform:"uppercase",
+          fontWeight:600,marginBottom:12}}>Dodaj nowy kanał</div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+          <input
+            value={newId}
+            onChange={e=>setNewId(e.target.value)}
+            placeholder="ID kanału (np. 1652601224)"
+            style={{background:"#0d0f17",border:"1px solid #3d4468",borderRadius:6,
+              color:"#e8eaf6",padding:"8px 12px",fontFamily:"monospace",fontSize:12,
+              width:200,outline:"none"}}
+          />
+          <input
+            value={newName}
+            onChange={e=>setNewName(e.target.value)}
+            placeholder="Nazwa (opcjonalna)"
+            style={{background:"#0d0f17",border:"1px solid #3d4468",borderRadius:6,
+              color:"#e8eaf6",padding:"8px 12px",fontFamily:"monospace",fontSize:12,
+              width:180,outline:"none"}}
+          />
+          <button
+            onClick={addChannel}
+            disabled={adding||!newId.trim()}
+            style={{background:adding?"#2e3350":CYAN,color:"#000",border:"none",
+              borderRadius:6,padding:"8px 18px",fontFamily:"monospace",fontSize:12,
+              fontWeight:700,cursor:adding?"not-allowed":"pointer",whiteSpace:"nowrap"}}>
+            {adding?"Dodawanie...":"+ Dodaj kanał"}
+          </button>
+        </div>
+        <div style={{color:"#5c6494",fontSize:10,marginTop:8}}>
+          💡 ID kanału znajdziesz w URL Telegram Web lub w logach bota (np. <code>-1001652601224</code> → wpisz <code>1652601224</code>)
+        </div>
+      </div>
+
+      {/* Lista kanałów */}
+      {channels.length === 0 ? (
+        <div style={{color:GRAY,padding:32,textAlign:"center",fontSize:13,fontFamily:"monospace"}}>
+          Brak kanałów testowych. Dodaj pierwszy powyżej.
+        </div>
+      ) : (
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(300px,1fr))",gap:10}}>
+          {channels.sort((a,b)=>(b.total_pnl_usd||0)-(a.total_pnl_usd||0)).map(ch=>{
+            const pnl = ch.total_pnl_usd||0;
+            const wr  = ch.win_rate||0;
+            const isSel = selCh?.id===ch.id;
+            const isAnalyzing = ch.status==="analyzing"||ch.status==="pending";
+            return (
+              <div key={ch.id}
+                style={{background:isSel?"#1a2540":"#1c2030",
+                  border:isSel?`2px solid ${CYAN}`:"1px solid #2e3350",
+                  borderRadius:10,overflow:"hidden",cursor:"pointer",transition:"all .2s"}}
+                onClick={()=>setSelCh(isSel?null:ch)}>
+
+                {/* Header */}
+                <div style={{padding:"12px 14px",borderBottom:"1px solid rgba(46,51,80,.5)"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{color:"#e8eaf6",fontWeight:700,fontSize:13,
+                        fontFamily:"monospace",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                        {ch.name}
+                      </div>
+                      <div style={{color:"#5c6494",fontSize:10,marginTop:2,fontFamily:"monospace"}}>
+                        ID: {ch.channel_id}
+                      </div>
+                    </div>
+                    <div style={{textAlign:"right",flexShrink:0}}>
+                      <div style={{color:pnl>=0?GREEN:RED,fontFamily:"monospace",
+                        fontSize:16,fontWeight:800,lineHeight:1}}>
+                        {fmt(pnl)}$
+                      </div>
+                      <div style={{color:wrColor(wr),fontFamily:"monospace",fontSize:11,marginTop:2}}>
+                        WR {wr}%
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Metryki */}
+                <div style={{padding:"10px 14px"}}>
+                  <div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"center",marginBottom:8}}>
+                    <div style={{textAlign:"center"}}>
+                      <div style={{color:"#9898b8",fontFamily:"monospace",fontSize:13}}>{ch.total_signals||0}</div>
+                      <div style={{color:"#5c6494",fontSize:9}}>Sygnałów</div>
+                    </div>
+                    <div style={{textAlign:"center"}}>
+                      <div style={{color:GREEN,fontFamily:"monospace",fontSize:13}}>{ch.wins||0}</div>
+                      <div style={{color:"#5c6494",fontSize:9}}>Wins</div>
+                    </div>
+                    <div style={{textAlign:"center"}}>
+                      <div style={{color:RED,fontFamily:"monospace",fontSize:13}}>{ch.losses||0}</div>
+                      <div style={{color:"#5c6494",fontSize:9}}>Losses</div>
+                    </div>
+                    <div style={{textAlign:"center"}}>
+                      <div style={{color:YELLOW,fontFamily:"monospace",fontSize:13}}>{ch.open_pos||0}</div>
+                      <div style={{color:"#5c6494",fontSize:9}}>Otwarte</div>
+                    </div>
+                    <div style={{marginLeft:"auto"}}>
+                      {statusBadge(ch.status)}
+                    </div>
+                  </div>
+
+                  {/* Akcje */}
+                  <div style={{display:"flex",gap:6}} onClick={e=>e.stopPropagation()}>
+                    <button
+                      onClick={()=>reanalyze(ch)}
+                      disabled={isAnalyzing}
+                      style={{background:"#2e3350",color:isAnalyzing?GRAY:CYAN,border:"none",
+                        borderRadius:5,padding:"4px 10px",fontSize:10,fontFamily:"monospace",
+                        cursor:isAnalyzing?"not-allowed":"pointer"}}>
+                      🔄 Odśwież
+                    </button>
+                    <button
+                      onClick={()=>removeChannel(ch)}
+                      style={{background:"#2e3350",color:RED,border:"none",
+                        borderRadius:5,padding:"4px 10px",fontSize:10,fontFamily:"monospace",
+                        cursor:"pointer"}}>
+                      🗑 Usuń
+                    </button>
+                    <div style={{color:"#5c6494",fontSize:9,alignSelf:"center",marginLeft:"auto"}}>
+                      {isSel?"▲ zwiń":"▼ sygnały"}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Szczegóły wybranego kanału — lista sygnałów */}
+      {selCh && selCh.status==="done" && (
+        <div style={{background:"#1c2030",border:`1px solid ${CYAN}44`,borderRadius:10,padding:"14px 16px"}}>
+          <div style={{color:CYAN,fontSize:13,fontWeight:700,fontFamily:"monospace",marginBottom:4}}>
+            {selCh.name} — historia sygnałów ({selSignals.length})
+          </div>
+
+          {/* Mini podsumowanie */}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(100px,1fr))",gap:8,marginBottom:14}}>
+            {[
+              {l:"Win Rate",    v:`${selCh.win_rate||0}%`,      c:wrColor(selCh.win_rate||0)},
+              {l:"P&L łącznie", v:fmt(selCh.total_pnl_usd)+"$", c:(selCh.total_pnl_usd||0)>=0?GREEN:RED},
+              {l:"Avg / trade", v:fmt(selCh.avg_pnl_usd)+"$",  c:(selCh.avg_pnl_usd||0)>=0?GREEN:RED},
+              {l:"Sygnałów",    v:selCh.total_signals||0,        c:GRAY},
+              {l:"Brak danych", v:selCh.no_data||0,              c:"#5c6494"},
+            ].map(s=>(
+              <div key={s.l} style={{background:"#0d0f17",borderRadius:8,padding:"8px 10px"}}>
+                <div style={{color:"#5c6494",fontSize:9,marginBottom:3}}>{s.l}</div>
+                <div style={{color:s.c,fontFamily:"monospace",fontSize:13,fontWeight:700}}>{s.v}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Tabela sygnałów */}
+          {selSignals.length > 0 ? (
+            <div style={{overflowX:"auto",WebkitOverflowScrolling:"touch"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontFamily:"monospace",fontSize:11,minWidth:560}}>
+                <thead>
+                  <tr style={{borderBottom:"1px solid #2e3350"}}>
+                    {["Data","Symbol","Typ","Entry","Wynik","P&L"].map(h=>(
+                      <th key={h} style={{color:"#5c6494",fontSize:9,padding:"6px 8px",
+                        textAlign:"left",textTransform:"uppercase",whiteSpace:"nowrap"}}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {selSignals.map(s=>{
+                    const isL  = ["LONG","SPOT_BUY"].includes(s.signal_type);
+                    const hit  = s.hit||"?";
+                    const isTP = hit.startsWith("TP");
+                    const isSL = hit==="SL";
+                    const isOP = hit==="OPEN";
+                    const isND = hit==="NO_DATA";
+                    const hitColor = isTP?GREEN:isSL?RED:isOP?YELLOW:GRAY;
+                    const pnl  = s.pnl_usd||0;
+                    return (
+                      <tr key={s.id} style={{borderBottom:"1px solid rgba(46,51,80,.3)"}}>
+                        <td style={{padding:"5px 8px",color:"#5c6494",fontSize:9,whiteSpace:"nowrap"}}>
+                          {s.date?s.date.substring(0,10):"—"}
+                        </td>
+                        <td style={{padding:"5px 8px",color:"#e8eaf6",fontWeight:700}}>{s.symbol}</td>
+                        <td style={{padding:"5px 8px"}}>
+                          <span style={{background:isL?"rgba(0,230,118,.15)":"rgba(255,82,82,.15)",
+                            color:isL?GREEN:RED,padding:"1px 5px",borderRadius:3,fontSize:9}}>
+                            {s.signal_type}
+                          </span>
+                        </td>
+                        <td style={{padding:"5px 8px",color:GRAY}}>
+                          ${s.entry_price?.toPrecision(4)||"—"}
+                        </td>
+                        <td style={{padding:"5px 8px"}}>
+                          <span style={{background:hitColor+"22",color:hitColor,
+                            padding:"1px 6px",borderRadius:3,fontSize:9}}>
+                            {isND?"NO DATA":hit}
+                          </span>
+                        </td>
+                        <td style={{padding:"5px 8px",fontWeight:700,
+                          color:pnl>=0?GREEN:RED,whiteSpace:"nowrap"}}>
+                          {pnl>=0?"+":""}{pnl.toFixed(2)}$
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div style={{color:GRAY,fontSize:12,textAlign:"center",padding:20}}>
+              Brak sygnałów — kanał może być jeszcze w trakcie analizy.
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Instrukcja PM2 */}
+      <div style={{background:"#141720",border:"1px solid #2e3350",borderRadius:8,
+        padding:"10px 14px",fontSize:11,color:"#5c6494",lineHeight:1.8}}>
+        <div style={{color:GRAY,fontWeight:600,marginBottom:4}}>⚙️ Wymagany proces na VPS:</div>
+        <code style={{color:CYAN,display:"block"}}>pm2 start channel_tester.py --name channel-tester --interpreter python3</code>
+        <div style={{marginTop:4}}>Bez uruchomionego procesu kanały pozostaną w statusie <span style={{color:YELLOW}}>⏳ Oczekuje</span>.</div>
+      </div>
+    </div>
+  );
+}
+
 // ─── 👥 SHADOW PORTFOLIO DASHBOARD ────────────────────────────────────────────
 function ShadowPortfolioDashboard({portfolios, positions, realPortfolio}) {
   const STRATEGY_META = {
@@ -3102,6 +3414,7 @@ const TABS=[
   {id:"intelligence",label:"🧠 Intelligence"},
   {id:"sentiment",label:"🎵 Sentiment"},
   {id:"shadow",label:"👥 Shadow"},
+  {id:"tester",label:"🔬 Tester"},
 ];
 
 function TabBar({active,onChange}){
@@ -3265,6 +3578,20 @@ export default function App(){
       setShadowPositions(snap.docs.map(d=>({id:d.id,...d.data()})));
     });
   },[]);
+  // ── Tester state ─────────────────────────────────────────────────────────────
+  const [testChannels, setTestChannels] = useState([]);
+  const [testSignals, setTestSignals]   = useState([]);
+  useEffect(()=>{
+    return onSnapshot(collection(db,"test_channels"), snap=>{
+      setTestChannels(snap.docs.map(d=>({id:d.id,...d.data()})));
+    });
+  },[]);
+  useEffect(()=>{
+    const q=query(collection(db,"test_signals"),orderBy("date","desc"),limit(500));
+    return onSnapshot(q, snap=>{
+      setTestSignals(snap.docs.map(d=>({id:d.id,...d.data()})));
+    });
+  },[]);
   // ── Bybit state ─────────────────────────────────────────────────────────────
   const [bybitPortfolio, setBybitPortfolio] = useState(null);
   const [bybitOpenPos, setBybitOpenPos] = useState([]);
@@ -3382,6 +3709,7 @@ export default function App(){
 
         {tab==="sentiment"&&<SentimentHarmonia signals={signals} openPos={openPos} closedPos={closedPos}/>}
         {tab==="shadow"&&<ShadowPortfolioDashboard portfolios={shadowPortfolios} positions={shadowPositions} realPortfolio={portfolio}/>}
+        {tab==="tester"&&<ChannelTester channels={testChannels} signals={testSignals} db={db}/>}
         {tab==="bybit"&&<BybitDashboard portfolio={bybitPortfolio} openPos={bybitOpenPos} closedPos={bybitClosedPos} logEvents={bybitLog} channelNames={channelNames}/>}
       </div>
     </div>
