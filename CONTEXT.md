@@ -1237,41 +1237,189 @@ Deployment
 bashpm2 reload signal-bot  # tylko po 22:00 UTC
 
 
-## PROMPT STARTOWY
+## Sesja 24-25.04.2026 — Shadow Portfolio (Bybit-based) + Channel Tester + Bugfixy Bybit
+
+---
+
+### 1. shadow_portfolio.py — całkowity rebuild (Bybit-based)
+
+**Stare 6 strategii symulacyjnych usunięte.** Nowe 4 strategie oparte na realnych pozycjach Bybit (kolekcja `bybit_positions`) zamiast własnego silnika sygnałów.
+
+**Nowe strategie (ID → nazwa):**
+- `tp1_all` 🎯 — 100% zamknięcie na TP1, SL cap 150%, BE po TP1
+- `tp2_8020` ✂️ — 80% na TP1, 20% na TP2, SL cap 150%, Tight Trailing
+- `tp3_603010` 📊 — 60/30/10%, SL cap 150%, Tight Trailing
+- `tight_sl` 🔒 — Oryginalny TP z sygnału, SL cap 150%, Tight Trailing po każdym TP
+
+**Tight Trailing SL (wspólny dla strategii 2/3/4):**
+- Wejście: SL nie może generować straty > 150% allocated (cap)
+- Po TP1 → SL = Break-Even (entry)
+- Po TP2 → SL = cena TP1
+- Po TP3 → SL = cena TP2
+- Po TP4+ → SL = poprzedni TP (tight_sl)
+
+**Mechanizm:**
+- `check_new_bybit_positions()` — co 60s wykrywa nowe OPEN pozycje Bybit i otwiera shadow
+- `sync_closed_bybit_positions()` — gdy Bybit zamknie pozycję, shadow też się zamyka
+- `backfill_from_bybit_history()` — przy starcie odtwarza historię z zamkniętych pozycji Bybit
+- Sesja Telethon: `analyze_session` (nie `signal_session` — unika konfliktu SQLite)
+
+**PM2:** `shadow-portfolio` (istniejący proces, reload po 22:00 UTC)
+
+---
+
+### 2. App.jsx — zakładka Shadow (przebudowa)
+
+- `STRATEGY_META` — nowe 4 ID strategii zamiast starych 6
+- Tabela otwartych pozycji: usunięto kolumnę Dźwignia, dodano `TP` (postęp np. 1/3) i `SL Stage` (badge kolorowy: Oryginalny/🔒 BE/📈 TP1/📈 TP2)
+- Label portfela zmieniony na `📊 Twój portfel Bybit (aktywny)`
+- Tekst pomocniczy zaktualizowany
+
+---
+
+### 3. channel_tester.py — nowy skrypt VPS (PM2: channel-tester)
+
+**Cel:** Testowanie nowych kanałów Telegram historycznie przed dodaniem do bota.
+
+**Flow:**
+1. Frontend dodaje kanał do Firebase `test_channels` z `status: "pending"`
+2. Skrypt (poll co 60s) wykrywa pending → pobiera wiadomości z ostatnich 7 dni przez Telethon (`analyze_session`)
+3. Pre-filter regex — odrzuca spam bez Groq (~60-70% wiadomości)
+4. Pozostałe → Groq (ogólny `BASE_SYSTEM_PROMPT`) → parsuje sygnały
+5. Dla każdego sygnału → MEXC świece 5m → symuluje trade ($10 × 20x = $200 notional)
+6. Zapisuje wyniki do `test_channels/{id}` + `test_signals/{id}_{msg_id}`
+7. Co tydzień (pon 06:00 UTC) → automatyczne odświeżenie przyrostowe
+
+**Parametry symulacji:**
+- `TRADE_AMOUNT = $10` margin
+- `DEFAULT_LEVERAGE = 20x` (gdy sygnał nie podaje dźwigni)
+- Notional = $10 × 20 = $200
+- P&L = ruch_ceny% × notional
+- `close_pct` = równy podział 100/n % **oryginalnej pozycji** (nie remaining)
+
+**Naprawione błędy w trakcie sesji:**
+- `DAYS_BACK` not defined — zmienna zgubiona przy edycji, przywrócona
+- Groq 429 rate limit — przy błędzie wyciąga czas oczekiwania z komunikatu i `time.sleep(wait+5s)`, max 3 próby
+- 1.5s opóźnienie między callami Groq
+- `close_pct` błąd — `portion = remaining * cpct` → `portion = cpct` (% oryginalnej pozycji)
+- Sesja Telethon zmieniona z `signal_session` na `analyze_session` (unika `database is locked`)
+- Type safety: `tp["level"] = int(...)`, `tp["price"] = float(...)`
+
+**Firebase kolekcje (nowe):**
+- `test_channels` — lista testowanych kanałów + statystyki
+- `test_signals` — historia sygnałów per kanał
+
+**Firebase Rules (dodać):**
+```
+match /test_channels/{docId} { allow read, write: true; }
+match /test_signals/{docId} { allow read, write: true; }
+```
+
+**Uruchomienie:**
+```bash
+pm2 start channel_tester.py --name channel-tester --interpreter python3
+pm2 save
+```
+
+---
+
+### 4. App.jsx — zakładka 🔬 Tester (nowa)
+
+- Formularz dodawania kanału (ID + opcjonalna nazwa) → Firebase `test_channels` status: pending
+- Karty kanałów: WR, W/L, Otwarte, P&L, status badge (Oczekuje/Analizuję/Gotowy/Błąd)
+- Sortowanie kart po P&L malejąco
+- Przyciski: 🔄 Odśwież (wymusza re-analizę), 🗑 Usuń (kasuje kanał + sygnały)
+- Kliknięcie karty → rozwija szczegółową listę sygnałów (karty per sygnał)
+- Każdy sygnał: symbol, typ, entry, SL, pasek TP (✅/○ per poziom z ceną i %), wynik, P&L$+%
+- **Statystyki liczone na żywo z `testSignals`** (nie z pól Firebase które mogły być przestarzałe)
+- Firebase imports: dodano `addDoc`, `deleteDoc`
+- Nowy tab w TABS: `{id:"tester", label:"🔬 Tester"}`
+
+---
+
+### 5. bybit_trader.py — bugfixy
+
+**Fix 1: SL BE ignorowany (linia ~783)**
+
+Problem: walidacja `sl_valid = (is_long and sl < entry)` odrzucała SL = entry (Break-Even). Po przesunięciu SL na BE, bot logował `⚠ SL po złej stronie entry — ignoruję SL check` i pozycja leciała bez ochrony poniżej entry.
+
+Fix: zmieniono `sl < entry` → `sl <= entry` (i `sl > entry` → `sl >= entry` dla SHORT).
+
+Dotyczyło: BSB/USDT, XTZ/USDT, TON/USDT, AVAX/USDT — wszystkie z SL na BE.
+
+**Fix 2: Walidacja TP przy otwieraniu pozycji**
+
+Problem: Groq czasem błędnie parsował sygnał (MAGMA/USDT z Binance 360) — zwracał TP poniżej entry dla LONG. Bot otwierał pozycję, natychmiast "trafiał TP1" i zamykał na entry price.
+
+Fix: w `open_position()` przed lockiem — walidacja wszystkich TP:
+- LONG: każde `tp_price > entry_price`, inaczej `return None` z logiem
+- SHORT: każde `tp_price < entry_price`, inaczej `return None` z logiem
+
+Walidacja SL przy otwieraniu (linia ~524 w `_open_position_inner`) — pozostawiona bez zmian (sprawdza SL względem `real_entry` po wykonaniu zlecenia).
+
+---
+
+### 6. Znane problemy pozostałe
+
+- Groq TPD limit 100k tokenów/dzień — channel_tester może spalić limit przy dużych kanałach
+- BSB/USDT — pozycja zamknięta ręcznie na Bybit, Firebase zaktualizowany manualnie (`realized_pnl: 0`)
+
+---
+
+## PROMPT STARTOWY (zaktualizowany)
 
 Wklej to jako pierwszą wiadomość w nowym czacie:
 
-
+```
 Kontynuujemy pracę nad projektem "Telegram Signal Bot" — systemem monitorowania sygnałów tradingowych.
 
 STACK:
-- Bot: Python 3.12 + Telethon na VPS Ubuntu, PM2 (procesy: signal-bot, market-regime, shadow-portfolio)
+- Bot: Python 3.12 + Telethon na VPS Ubuntu, PM2 (procesy: signal-bot, market-regime, shadow-portfolio, channel-tester)
 - AI: Groq API (llama-3.3-70b-versatile) do parsowania sygnałów
 - DB: Firebase Firestore (plan Blaze)
-- Frontend: React/Vite → Vercel, jeden plik App.jsx (~3100 linii)
+- Frontend: React/Vite → Vercel, jeden plik App.jsx (~3600 linii)
 - Ceny: MEXC public API
 
 PLIKI NA VPS /home/signal-bot/:
-bot.py, simulation.py, price_updater.py, health_monitor.py + channels/ (11 handlerów)
+bot.py, simulation.py, price_updater.py, health_monitor.py, shadow_portfolio.py, channel_tester.py, bybit_trader.py + channels/ (11 handlerów)
 
-KANAŁY (11): Crypto Bulls(1700533698), Crypto BEAST(1982472141), Crypto MONK(1552004524), 
-Predictum(1456872361), Binance 360(1553551852), Boom Boom(1756316676), Crypto Hustle(1743387695), 
+SESJE TELETHON:
+- signal_session — główny bot (bot.py)
+- analyze_session — channel_tester.py (osobna sesja, unika database is locked)
+
+KANAŁY PRODUKCYJNE (11): Crypto Bulls(1700533698), Crypto BEAST(1982472141), Crypto MONK(1552004524),
+Predictum(1456872361), Binance 360(1553551852), Boom Boom(1756316676), Crypto Hustle(1743387695),
 Crypto World(1652601224), Crypto Devil(1598691683), Crypto Conquered(1505272164), Whales Pump(1594522150)
 
 PARAMETRY SYMULACJI: $200 kapitał, 4% ryzyko=$8/trade, slippage 0.5%
-
 FRONT-LOADED TP: 3TP→50/30/20%, 4TP→40/30/20/10%, 5TP→35/25/20/15/5%, 6TP→30/25/20/15/7/3%
 3-STOPNIOWY SL: po TP1→50% drogi, po TP2→BE, po TP3→SL na cenę TP1
 DCA: entry range → wejście po pierwszej cenie, dokładanie 2% po drugiej
 WALIDACJA MEXC: ratio 1.5x max między ceną MEXC a entry sygnału
+WALIDACJA TP: wszystkie TP muszą być po właściwej stronie entry (LONG: TP > entry, SHORT: TP < entry)
 
 MECHANIZM: dual-track — Telethon events + polling co 60s (backup), keepalive co 30s (GetDialogsRequest)
 
-FRONTEND (zakładki): Portfolio, Otwarte, Zamknięte (z historią TP/SL po kliknięciu), 
-Kanały, Sygnały, Log (AdvancedLog z filtrami), Debug, Intelligence, Sentiment, Shadow (6 strategii)
+SHADOW PORTFOLIO (4 strategie, Bybit-based):
+- tp1_all: 100% na TP1, SL cap 150%, BE po TP1
+- tp2_8020: 80/20%, Tight Trailing SL
+- tp3_603010: 60/30/10%, Tight Trailing SL
+- tight_sl: oryginalny TP, SL cap 150% + Tight Trailing
+
+CHANNEL TESTER:
+- PM2: channel-tester (channel_tester.py)
+- Sesja: analyze_session
+- $10 margin × 20x = $200 notional per trade
+- Firebase: test_channels + test_signals
+- Tygodniowe odświeżenie: pon 06:00 UTC
+
+FRONTEND (zakładki): Portfolio, Otwarte, Zamknięte, Kanały, Sygnały, Log, Debug, Intelligence, Sentiment, Shadow (4 strategie), Tester
+
+FIREBASE KOLEKCJE (nowe): test_channels, test_signals, bybit_positions, bybit_portfolio
 
 DEPLOYMENT: pm2 reload signal-bot (NIE restart!), tylko po 22:00 UTC
 App.jsx → GitHub → Vercel auto-deploy
+
 
 Co chcesz dzisiaj zrobić?
 ```
