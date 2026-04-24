@@ -1979,6 +1979,21 @@ function ChannelTester({channels, signals, db}) {
 
   const selSignals = selCh ? signals.filter(s=>s.channel_doc_id===selCh.id) : [];
 
+  // Licz statystyki z sygnałów w czasie rzeczywistym (nie z pól Firebase które mogą być przestarzałe)
+  const chStats = (ch) => {
+    const sigs = signals.filter(s=>s.channel_doc_id===ch.id);
+    if (!sigs.length) return {wins:0,losses:0,open:0,total:0,pnl:0,wr:0,avg:0};
+    const wins   = sigs.filter(s=>s.hit&&s.hit.startsWith("TP")).length;
+    const losses = sigs.filter(s=>s.hit==="SL").length;
+    const open   = sigs.filter(s=>s.hit==="OPEN").length;
+    const total  = sigs.length;
+    const pnl    = sigs.reduce((a,s)=>a+(s.pnl_usd||0),0);
+    const resolved = wins+losses;
+    const wr     = resolved ? Math.round(wins/resolved*1000)/10 : 0;
+    const avg    = total ? Math.round(pnl/total*100)/100 : 0;
+    return {wins,losses,open,total,pnl:Math.round(pnl*100)/100,wr,avg};
+  };
+
   return (
     <div style={{display:"flex",flexDirection:"column",gap:14}}>
 
@@ -2037,9 +2052,10 @@ function ChannelTester({channels, signals, db}) {
         </div>
       ) : (
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(300px,1fr))",gap:10}}>
-          {channels.sort((a,b)=>(b.total_pnl_usd||0)-(a.total_pnl_usd||0)).map(ch=>{
-            const pnl = ch.total_pnl_usd||0;
-            const wr  = ch.win_rate||0;
+          {channels.sort((a,b)=>(chStats(b).pnl)-(chStats(a).pnl)).map(ch=>{
+            const st  = chStats(ch);
+            const pnl = st.pnl;
+            const wr  = st.wr;
             const isSel = selCh?.id===ch.id;
             const isAnalyzing = ch.status==="analyzing"||ch.status==="pending";
             return (
@@ -2077,19 +2093,19 @@ function ChannelTester({channels, signals, db}) {
                 <div style={{padding:"10px 14px"}}>
                   <div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"center",marginBottom:8}}>
                     <div style={{textAlign:"center"}}>
-                      <div style={{color:"#9898b8",fontFamily:"monospace",fontSize:13}}>{ch.total_signals||0}</div>
+                      <div style={{color:"#9898b8",fontFamily:"monospace",fontSize:13}}>{st.total}</div>
                       <div style={{color:"#5c6494",fontSize:9}}>Sygnałów</div>
                     </div>
                     <div style={{textAlign:"center"}}>
-                      <div style={{color:GREEN,fontFamily:"monospace",fontSize:13}}>{ch.wins||0}</div>
+                      <div style={{color:GREEN,fontFamily:"monospace",fontSize:13}}>{st.wins}</div>
                       <div style={{color:"#5c6494",fontSize:9}}>Wins</div>
                     </div>
                     <div style={{textAlign:"center"}}>
-                      <div style={{color:RED,fontFamily:"monospace",fontSize:13}}>{ch.losses||0}</div>
+                      <div style={{color:RED,fontFamily:"monospace",fontSize:13}}>{st.losses}</div>
                       <div style={{color:"#5c6494",fontSize:9}}>Losses</div>
                     </div>
                     <div style={{textAlign:"center"}}>
-                      <div style={{color:YELLOW,fontFamily:"monospace",fontSize:13}}>{ch.open_pos||0}</div>
+                      <div style={{color:YELLOW,fontFamily:"monospace",fontSize:13}}>{st.open}</div>
                       <div style={{color:"#5c6494",fontSize:9}}>Otwarte</div>
                     </div>
                     <div style={{marginLeft:"auto"}}>
@@ -2133,13 +2149,14 @@ function ChannelTester({channels, signals, db}) {
           </div>
 
           {/* Mini podsumowanie */}
+          {(()=>{const st=chStats(selCh);return(
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(100px,1fr))",gap:8,marginBottom:14}}>
             {[
-              {l:"Win Rate",    v:`${selCh.win_rate||0}%`,      c:wrColor(selCh.win_rate||0)},
-              {l:"P&L łącznie", v:fmt(selCh.total_pnl_usd)+"$", c:(selCh.total_pnl_usd||0)>=0?GREEN:RED},
-              {l:"Avg / trade", v:fmt(selCh.avg_pnl_usd)+"$",  c:(selCh.avg_pnl_usd||0)>=0?GREEN:RED},
-              {l:"Sygnałów",    v:selCh.total_signals||0,        c:GRAY},
-              {l:"Brak danych", v:selCh.no_data||0,              c:"#5c6494"},
+              {l:"Win Rate",    v:`${st.wr}%`,           c:wrColor(st.wr)},
+              {l:"P&L łącznie", v:fmt(st.pnl)+"$",       c:st.pnl>=0?GREEN:RED},
+              {l:"Avg / trade", v:fmt(st.avg)+"$",       c:st.avg>=0?GREEN:RED},
+              {l:"Sygnałów",    v:st.total,               c:GRAY},
+              {l:"Brak danych", v:selSignals.filter(s=>s.hit==="NO_DATA").length, c:"#5c6494"},
             ].map(s=>(
               <div key={s.l} style={{background:"#0d0f17",borderRadius:8,padding:"8px 10px"}}>
                 <div style={{color:"#5c6494",fontSize:9,marginBottom:3}}>{s.l}</div>
@@ -2147,6 +2164,7 @@ function ChannelTester({channels, signals, db}) {
               </div>
             ))}
           </div>
+          );})()}
 
           {/* Lista sygnałów — karty */}
           {selSignals.length > 0 ? (
